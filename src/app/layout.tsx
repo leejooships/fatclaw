@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FatClaw - Vibe Code Until Claude Gets HUGE",
-  description: "The more you vibe code, the fatter Claude gets.",
+  title: "Vibe with Friends",
+  description: "Vibe with Friends",
 };
 
 export default function RootLayout({

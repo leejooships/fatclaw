@@ -63,10 +63,10 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="bg-gray-900/80 border border-gray-700 rounded-2xl p-8 max-w-md w-full">
         <h1 className="text-4xl font-black text-center text-orange-400 mb-2">
-          FatClaw
+          Vibe with Friends
         </h1>
         <p className="text-gray-400 text-center text-sm mb-8">
-          Vibe code. Get fat. Flex on everyone.
+          Hang out. Chat. Vibe.
         </p>
 
         {/* Username */}
