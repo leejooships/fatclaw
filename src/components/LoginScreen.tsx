@@ -133,7 +133,7 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
             The more you use Claude, the bigger your character gets
           </p>
           <div className="bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
-            <p>git clone -b leejooships/remove-code-panel https://github.com/leejooships/fatclaw.git</p>
+            <p>git clone https://github.com/leejooships/fatclaw.git</p>
             <p>cd fatclaw/cli && bun install && bun run sync</p>
           </div>
         </div>
