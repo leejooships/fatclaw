@@ -1,0 +1,16 @@
+{
+  "name": "@fatclaw/cli",
+  "version": "1.0.0",
+  "description": "Chat with Claude using your own API key. Token usage is reported to the FatClaw dashboard.",
+  "type": "module",
+  "bin": {
+    "fatclaw": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}

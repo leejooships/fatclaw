@@ -1,65 +1,192 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import LoginScreen from "@/components/LoginScreen";
+import GameCanvas from "@/components/GameCanvas";
+import CodePanel from "@/components/CodePanel";
+import ChatPanel from "@/components/ChatPanel";
+import TokenStatsPanel from "@/components/TokenStatsPanel";
+import type { Player } from "@/lib/gameState";
+import type { ChatMessage } from "@/lib/chatState";
+
+interface SessionData {
+  id: string;
+  username: string;
+  iconIndex: number;
+}
 
 export default function Home() {
+  const [session, setSession] = useState<SessionData | null>(null);
+  const [localPlayer, setLocalPlayer] = useState<Player | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [code, setCode] = useState("");
+  const [codePanelOpen, setCodePanelOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  const [statsPanelOpen, setStatsPanelOpen] = useState(false);
+  const codeRef = useRef(code);
+
+  // Keep code ref in sync
+  useEffect(() => {
+    codeRef.current = code;
+  }, [code]);
+
+  // Load session from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("fatclaw_session");
+    if (saved) {
+      try {
+        const data = JSON.parse(saved) as SessionData;
+        handleJoin(data.username, data.iconIndex);
+      } catch {
+        localStorage.removeItem("fatclaw_session");
+      }
+    }
+    const savedCode = localStorage.getItem("fatclaw_code");
+    if (savedCode) setCode(savedCode);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Join game
+  const handleJoin = useCallback(async (username: string, iconIndex: number) => {
+    try {
+      const res = await fetch("/api/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, iconIndex }),
+      });
+      if (!res.ok) return;
+      const player: Player = await res.json();
+      setLocalPlayer(player);
+      setSession({ id: player.id, username: player.username, iconIndex: player.iconIndex });
+      localStorage.setItem("fatclaw_session", JSON.stringify({
+        id: player.id,
+        username: player.username,
+        iconIndex: player.iconIndex,
+      }));
+    } catch (e) {
+      console.error("Join failed:", e);
+    }
+  }, []);
+
+  // Poll players
+  useEffect(() => {
+    if (!session) return;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/players");
+        if (res.ok) {
+          const data: { players: Player[]; messages: ChatMessage[] } = await res.json();
+          setPlayers(data.players);
+          setChatMessages(data.messages);
+          // Update local player from server
+          const me = data.players.find((p) => p.id === session.id);
+          if (me) setLocalPlayer(me);
+          else {
+            // We got disconnected (5min timeout), rejoin
+            handleJoin(session.username, session.iconIndex);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 800);
+    return () => clearInterval(interval);
+  }, [session, handleJoin]);
+
+  // Send chat message
+  const handleSendChat = useCallback(async (text: string) => {
+    if (!session) return;
+    try {
+      await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId: session.id, text }),
+      });
+    } catch {
+      // ignore
+    }
+  }, [session]);
+
+  // Handle movement
+  const handleMove = useCallback(async (x: number, y: number) => {
+    if (!session) return;
+    try {
+      await fetch("/api/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: session.id, x, y }),
+      });
+    } catch {
+      // ignore
+    }
+  }, [session]);
+
+  // Handle code changes
+  const handleCodeChange = useCallback((newCode: string) => {
+    setCode(newCode);
+    localStorage.setItem("fatclaw_code", newCode);
+  }, []);
+
+  // Report code lines to server (debounced)
+  useEffect(() => {
+    if (!session) return;
+    const linesOfCode = code.split("\n").filter((l) => l.trim().length > 0).length;
+    const timeout = setTimeout(async () => {
+      try {
+        await fetch("/api/code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: session.id, linesOfCode }),
+        });
+      } catch {
+        // ignore
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [code, session]);
+
+  const linesOfCode = code.split("\n").filter((l) => l.trim().length > 0).length;
+
+  // Not logged in yet
+  if (!session || !localPlayer) {
+    return <LoginScreen onJoin={handleJoin} />;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <>
+      <GameCanvas
+        localPlayer={localPlayer}
+        players={players}
+        onMove={handleMove}
+      />
+      {!statsPanelOpen && (
+        <button
+          onClick={() => setStatsPanelOpen(true)}
+          className="fixed top-4 left-4 z-50 bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-orange-400 hover:bg-gray-800 transition-colors cursor-pointer"
+        >
+          📊 Token Stats
+        </button>
+      )}
+      <TokenStatsPanel
+        isOpen={statsPanelOpen}
+        onToggle={() => setStatsPanelOpen((o) => !o)}
+      />
+      <ChatPanel
+        messages={chatMessages}
+        onSend={handleSendChat}
+        isOpen={chatPanelOpen}
+        onToggle={() => setChatPanelOpen((o) => !o)}
+        localUsername={session.username}
+      />
+      <CodePanel
+        code={code}
+        onChange={handleCodeChange}
+        linesOfCode={linesOfCode}
+        isOpen={codePanelOpen}
+        onToggle={() => setCodePanelOpen((o) => !o)}
+      />
+    </>
   );
 }
