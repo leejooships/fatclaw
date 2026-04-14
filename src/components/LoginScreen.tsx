@@ -42,43 +42,51 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const selectedIconRef = useRef(selectedIcon);
   const onJoinRef = useRef(onJoin);
+  const initializedRef = useRef(false);
   selectedIconRef.current = selectedIcon;
   onJoinRef.current = onJoin;
 
-  const initGoogle = useCallback(() => {
+  useEffect(() => {
+    if (initializedRef.current) return;
+
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) {
       setError("Google Client ID not configured");
       return;
     }
 
-    if (typeof google === "undefined" || !google.accounts?.id) {
-      setTimeout(initGoogle, 200);
-      return;
-    }
+    let timer: ReturnType<typeof setTimeout>;
 
-    google.accounts.id.initialize({
-      client_id: clientId,
-      callback: (response: { credential: string }) => {
-        onJoinRef.current(response.credential, selectedIconRef.current);
-      },
-    });
+    const tryInit = () => {
+      if (initializedRef.current) return;
+      if (typeof google === "undefined" || !google.accounts?.id) {
+        timer = setTimeout(tryInit, 200);
+        return;
+      }
 
-    if (googleBtnRef.current) {
-      googleBtnRef.current.innerHTML = "";
-      google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: "filled_black",
-        size: "large",
-        text: "continue_with",
-        shape: "pill",
-        width: 320,
+      initializedRef.current = true;
+
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response: { credential: string }) => {
+          onJoinRef.current(response.credential, selectedIconRef.current);
+        },
       });
-    }
-  }, []);
 
-  useEffect(() => {
-    initGoogle();
-  }, [initGoogle]);
+      if (googleBtnRef.current) {
+        google.accounts.id.renderButton(googleBtnRef.current, {
+          theme: "filled_black",
+          size: "large",
+          text: "continue_with",
+          shape: "pill",
+          width: 320,
+        });
+      }
+    };
+
+    tryInit();
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
