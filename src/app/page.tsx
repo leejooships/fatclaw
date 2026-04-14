@@ -121,6 +121,13 @@ export default function Home() {
     }
   }, [session]);
 
+  // Logout
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem("fatclaw_session");
+    setSession(null);
+    setLocalPlayer(null);
+  }, []);
+
   // Handle movement
   const handleMove = useCallback(async (x: number, y: number) => {
     if (!session) return;
@@ -150,14 +157,22 @@ export default function Home() {
         chatOpen={chatPanelOpen}
         onMove={handleMove}
       />
-      {!statsPanelOpen && (
+      <div className="fixed top-4 left-4 z-50 flex gap-2">
+        {!statsPanelOpen && (
+          <button
+            onClick={() => setStatsPanelOpen(true)}
+            className="bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-orange-400 hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            📊 Token Stats
+          </button>
+        )}
         <button
-          onClick={() => setStatsPanelOpen(true)}
-          className="fixed top-4 left-4 z-50 bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-orange-400 hover:bg-gray-800 transition-colors cursor-pointer"
+          onClick={handleLogout}
+          className="bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors cursor-pointer"
         >
-          📊 Token Stats
+          Logout
         </button>
-      )}
+      </div>
       <TokenStatsPanel
         isOpen={statsPanelOpen}
         onToggle={() => setStatsPanelOpen((o) => !o)}
