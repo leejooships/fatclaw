@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
 /**
- * Lightweight background sync: reads Claude Code token usage from ~/.claude/
- * and pushes it to the party server without joining as a player.
+ * Background sync: reads Claude Code token usage from ~/.claude/
+ * and pushes it to the party server.
  *
- * Usage: bun run cli/src/sync.ts [username]
+ * Usage: bun run sync [in-game-name]
  *
- * If username is omitted, reads from ~/.fatclaw/config.
+ * On first run, prompts for your in-game name and saves it.
  */
+import { createInterface } from "node:readline";
 import { getClaudeCodeWeeklyTokens } from "./claude-usage.js";
-import { readConfig } from "./config.js";
+import { readConfig, writeConfig } from "./config.js";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
@@ -32,29 +33,51 @@ function formatTokens(n: number): string {
   return `${n}`;
 }
 
+function ask(rl: ReturnType<typeof createInterface>, question: string): Promise<string> {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => resolve(answer.trim()));
+  });
+}
+
 async function main() {
   let username = process.argv[2];
   let serverUrl = DEFAULT_SERVER;
+  const config = readConfig();
 
-  if (!username) {
-    const config = readConfig();
-    if (config) {
-      username = config.username;
-      serverUrl = config.serverUrl || DEFAULT_SERVER;
-    }
+  if (config) {
+    serverUrl = config.serverUrl || DEFAULT_SERVER;
   }
 
+  // Use saved syncUsername if no argument given
+  if (!username && config?.syncUsername) {
+    username = config.syncUsername;
+  }
+
+  // Prompt for in-game name if we still don't have one
   if (!username) {
-    console.error(`${RED}Usage: bun run sync.ts <username>${RESET}`);
-    console.error(`${DIM}Or run 'bun start' first to create a config.${RESET}`);
-    process.exit(1);
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    console.log(`\n${CYAN}What's your in-game name?${RESET}`);
+    console.log(`${DIM}This must match the nickname you picked on the website.${RESET}`);
+    username = await ask(rl, `${CYAN}> ${RESET}`);
+    rl.close();
+
+    if (!username) {
+      console.error(`${RED}Name is required.${RESET}`);
+      process.exit(1);
+    }
+
+    // Save it so they don't have to enter it again
+    if (config) {
+      config.syncUsername = username;
+      writeConfig(config);
+      console.log(`${GREEN}Saved! Next time just run: bun run sync${RESET}\n`);
+    }
   }
 
   const wsUrl = getWsUrl(serverUrl);
   console.log(`${CYAN}Syncing Claude Code usage for ${username}${RESET}`);
   console.log(`${DIM}Server: ${serverUrl}${RESET}`);
 
-  // Initial read
   const initialTokens = await getClaudeCodeWeeklyTokens();
   console.log(`${GREEN}Current weekly usage: ${formatTokens(initialTokens)} tokens${RESET}`);
 
@@ -87,6 +110,7 @@ async function main() {
         type: "sync_for_user",
         username,
         weeklyTokens: tokens,
+        secret: "fclaw_s3cr3t_2024",
       }));
       console.log(`${DIM}[${new Date().toLocaleTimeString()}] Synced: ${formatTokens(tokens)} tokens${RESET}`);
     } catch (e) {
@@ -95,11 +119,8 @@ async function main() {
   }
 
   connect();
-
-  // Periodic sync
   setInterval(sync, SYNC_INTERVAL_MS);
 
-  // Keep alive
   process.on("SIGINT", () => {
     console.log(`\n${CYAN}Stopping sync.${RESET}`);
     ws?.close();

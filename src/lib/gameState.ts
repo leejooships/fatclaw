@@ -6,6 +6,7 @@ export interface Player {
   y: number;
   googleId?: string;
   weeklyTokens: number;
+  isAdmin?: boolean;
 }
 
 // World size

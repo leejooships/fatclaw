@@ -8,6 +8,7 @@ export interface FatClawConfig {
   username: string;
   serverUrl: string;
   iconIndex: number;
+  syncUsername?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".fatclaw");
