@@ -49,7 +49,7 @@ export default function Home() {
 
     const ws = new PartySocket({
       host,
-      party: "gameserver",
+      party: "game-server",
       room: "main",
     });
 
