@@ -21,6 +21,7 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Load session from localStorage
   useEffect(() => {
@@ -29,11 +30,13 @@ export default function Home() {
       try {
         const data = JSON.parse(saved) as SessionData;
         // Rejoin by username (for reconnection after timeout)
-        rejoinByUsername(data.username, data.iconIndex);
+        rejoinByUsername(data.username, data.iconIndex).finally(() => setLoading(false));
+        return;
       } catch {
         localStorage.removeItem("fatclaw_session");
       }
     }
+    setLoading(false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Rejoin by username (for session restore / reconnection)
@@ -142,6 +145,11 @@ export default function Home() {
     }
   }, [session]);
 
+
+  // Loading session
+  if (loading) {
+    return <div className="min-h-screen" />;
+  }
 
   // Not logged in yet
   if (!session || !localPlayer) {
