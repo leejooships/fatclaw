@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ICONS, drawClaudeIcon } from "@/lib/icons";
 
 interface LoginScreenProps {
-  onJoin: (username: string, iconIndex: number) => void;
+  onJoin: (username: string, iconIndex: number, apiToken: string) => void;
 }
 
 function IconPreview({ index, selected, onClick }: { index: number; selected: boolean; onClick: () => void }) {
@@ -38,6 +38,7 @@ function IconPreview({ index, selected, onClick }: { index: number; selected: bo
 
 export default function LoginScreen({ onJoin }: LoginScreenProps) {
   const [username, setUsername] = useState("");
+  const [apiToken, setApiToken] = useState("");
   const [selectedIcon, setSelectedIcon] = useState(0);
   const [error, setError] = useState("");
 
@@ -51,8 +52,12 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
       setError("Username too long (max 16 chars)");
       return;
     }
-    onJoin(trimmed, selectedIcon);
-  }, [username, selectedIcon, onJoin]);
+    if (!apiToken.trim()) {
+      setError("Enter your API token");
+      return;
+    }
+    onJoin(trimmed, selectedIcon, apiToken.trim());
+  }, [username, apiToken, selectedIcon, onJoin]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -81,6 +86,25 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
             autoFocus
           />
           {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
+        </div>
+
+        {/* API Token */}
+        <div className="mb-6">
+          <label className="block text-sm text-gray-400 mb-2">API Token</label>
+          <input
+            type="password"
+            value={apiToken}
+            onChange={(e) => {
+              setApiToken(e.target.value);
+              setError("");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            placeholder="sk-ant-..."
+            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-orange-400 transition-colors font-mono text-sm"
+          />
+          <p className="text-yellow-500/80 text-xs mt-1.5">
+            Limit your token to $1 max spend to be safe.
+          </p>
         </div>
 
         {/* Icon selection */}

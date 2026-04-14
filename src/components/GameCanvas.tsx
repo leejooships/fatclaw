@@ -4,14 +4,17 @@ import { useRef, useEffect, useCallback } from "react";
 import { ICONS, drawClaudeIcon } from "@/lib/icons";
 import { WORLD_W, WORLD_H } from "@/lib/gameState";
 import type { Player } from "@/lib/gameState";
+import type { ChatMessage } from "@/lib/chatState";
 
 interface GameCanvasProps {
   localPlayer: Player;
   players: Player[];
+  chatMessages: ChatMessage[];
+  chatOpen: boolean;
   onMove: (x: number, y: number) => void;
 }
 
-const MAX_LINES_FOR_SIZE = 300;
+const PLAYER_SIZE = 1;
 const TILE_SIZE = 64;
 
 // Deterministic random for world generation
@@ -90,9 +93,6 @@ function generateDecorations(): Decoration[] {
 
 const DECORATIONS = generateDecorations();
 
-function getPlayerSize(lines: number): number {
-  return 1 + (Math.min(lines, MAX_LINES_FOR_SIZE) / MAX_LINES_FOR_SIZE) * 3;
-}
 
 function drawDecoration(ctx: CanvasRenderingContext2D, d: Decoration) {
   switch (d.type) {
@@ -188,12 +188,90 @@ function drawGround(ctx: CanvasRenderingContext2D, camX: number, camY: number, v
   ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
 }
 
+const BUBBLE_MAX_WIDTH = 180;
+const BUBBLE_PADDING_X = 10;
+const BUBBLE_PADDING_Y = 6;
+const BUBBLE_FONT_SIZE = 12;
+const BUBBLE_TAIL_SIZE = 6;
+const BUBBLE_DURATION_MS = 6000;
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function drawChatBubble(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  bubbleBottom: number,
+  size: number,
+) {
+  ctx.font = `${BUBBLE_FONT_SIZE * size}px sans-serif`;
+  const maxTextWidth = BUBBLE_MAX_WIDTH * size;
+  const lines = wrapText(ctx, text, maxTextWidth);
+
+  const lineHeight = BUBBLE_FONT_SIZE * size * 1.3;
+  const paddingX = BUBBLE_PADDING_X * size;
+  const paddingY = BUBBLE_PADDING_Y * size;
+  const tailSize = BUBBLE_TAIL_SIZE * size;
+
+  let textWidth = 0;
+  for (const line of lines) {
+    textWidth = Math.max(textWidth, ctx.measureText(line).width);
+  }
+
+  const bw = textWidth + paddingX * 2;
+  const bh = lines.length * lineHeight + paddingY * 2;
+  const bx = x - bw / 2;
+  const by = bubbleBottom - bh - tailSize;
+  const radius = 8 * size;
+
+  // Bubble background
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  // Tail
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.beginPath();
+  ctx.moveTo(x - tailSize, by + bh);
+  ctx.lineTo(x, by + bh + tailSize);
+  ctx.lineTo(x + tailSize, by + bh);
+  ctx.closePath();
+  ctx.fill();
+
+  // Text
+  ctx.fillStyle = "#1a1a1a";
+  ctx.textAlign = "center";
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], x, by + paddingY + (i + 0.8) * lineHeight);
+  }
+}
+
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   player: Player,
   isLocal: boolean,
+  chatText: string | null,
 ) {
-  const size = getPlayerSize(player.linesOfCode);
+  const size = PLAYER_SIZE;
   const icon = ICONS[player.iconIndex] || ICONS[0];
 
   drawClaudeIcon(ctx, icon, player.x, player.y, size);
@@ -208,15 +286,9 @@ function drawPlayer(
   ctx.strokeText(player.username, player.x, labelY);
   ctx.fillText(player.username, player.x, labelY);
 
-  // Lines count badge
-  if (player.linesOfCode > 0) {
-    const badge = `${player.linesOfCode} lines`;
-    ctx.font = `${9 + size * 0.5}px sans-serif`;
-    ctx.fillStyle = "#a0a0a0";
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
-    ctx.lineWidth = 2;
-    ctx.strokeText(badge, player.x, labelY + 14);
-    ctx.fillText(badge, player.x, labelY + 14);
+  // Chat bubble
+  if (chatText) {
+    drawChatBubble(ctx, chatText, player.x, labelY - 4 * size, size);
   }
 
   // Local player indicator
@@ -259,7 +331,7 @@ function drawMinimap(
     const px = mmX + p.x * scaleX;
     const py = mmY + p.y * scaleY;
     const icon = ICONS[p.iconIndex] || ICONS[0];
-    const dotSize = 2 + getPlayerSize(p.linesOfCode) * 0.8;
+    const dotSize = 2 + PLAYER_SIZE * 0.8;
     ctx.fillStyle = p.id === localId ? "#ffd700" : icon.bodyColor;
     ctx.beginPath();
     ctx.arc(px, py, dotSize, 0, Math.PI * 2);
@@ -267,11 +339,22 @@ function drawMinimap(
   }
 }
 
-export default function GameCanvas({ localPlayer, players, onMove }: GameCanvasProps) {
+export default function GameCanvas({ localPlayer, players, chatMessages, chatOpen, onMove }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const posRef = useRef({ x: localPlayer.x, y: localPlayer.y });
   const animFrameRef = useRef<number>(0);
+  const chatMessagesRef = useRef(chatMessages);
+  chatMessagesRef.current = chatMessages;
+  const chatOpenRef = useRef(chatOpen);
+  chatOpenRef.current = chatOpen;
+
+  // Clear movement keys when chat opens
+  useEffect(() => {
+    if (chatOpen) {
+      keysRef.current.clear();
+    }
+  }, [chatOpen]);
 
   // Sync position from server
   useEffect(() => {
@@ -281,9 +364,10 @@ export default function GameCanvas({ localPlayer, players, onMove }: GameCanvasP
   // Keyboard handlers
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Don't capture movement keys when typing in inputs
+      // Don't capture movement keys when typing in inputs or chat is open
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (chatOpenRef.current) return;
 
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(e.key)) {
         e.preventDefault();
@@ -301,11 +385,10 @@ export default function GameCanvas({ localPlayer, players, onMove }: GameCanvasP
     };
   }, []);
 
-  // Movement speed (bigger = slower, funnier)
+  // Movement speed
   const getSpeed = useCallback(() => {
-    const size = getPlayerSize(localPlayer.linesOfCode);
-    return Math.max(1.5, 5 - size * 0.8);
-  }, [localPlayer.linesOfCode]);
+    return Math.max(1.5, 5 - PLAYER_SIZE * 0.8);
+  }, []);
 
   // Resize canvas
   useEffect(() => {
@@ -385,9 +468,18 @@ export default function GameCanvas({ localPlayer, players, onMove }: GameCanvasP
       }
       allPlayers.sort((a, b) => a.y - b.y);
 
+      // Build map of latest chat message per player (within bubble duration)
+      const now = Date.now();
+      const latestChat = new Map<string, string>();
+      for (const msg of chatMessagesRef.current) {
+        if (now - msg.timestamp < BUBBLE_DURATION_MS) {
+          latestChat.set(msg.username, msg.text);
+        }
+      }
+
       for (const p of allPlayers) {
         if (p.x > camX - 100 && p.x < camX + vw + 100 && p.y > camY - 100 && p.y < camY + vh + 100) {
-          drawPlayer(ctx, p, p.id === localPlayer.id);
+          drawPlayer(ctx, p, p.id === localPlayer.id, latestChat.get(p.username) ?? null);
         }
       }
 
@@ -413,7 +505,7 @@ export default function GameCanvas({ localPlayer, players, onMove }: GameCanvasP
       ctx.fill();
       ctx.fillStyle = "#888";
       ctx.font = "11px sans-serif";
-      ctx.fillText("WASD to move  |  Tab to code", 24, vh - 24);
+      ctx.fillText("WASD to move  |  Enter to chat", 24, vh - 24);
 
       animFrameRef.current = requestAnimationFrame(loop);
     };

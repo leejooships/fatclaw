@@ -4,7 +4,6 @@ export interface Player {
   iconIndex: number; // 0-7
   x: number;
   y: number;
-  linesOfCode: number;
   lastActive: number; // timestamp
   todayDate: string; // YYYY-MM-DD for daily reset
 }
@@ -23,7 +22,6 @@ function getToday() {
 function checkDailyReset(player: Player) {
   const today = getToday();
   if (player.todayDate !== today) {
-    player.linesOfCode = 0;
     player.todayDate = today;
   }
 }
@@ -47,7 +45,6 @@ export function joinGame(username: string, iconIndex: number): Player {
     iconIndex: Math.min(7, Math.max(0, iconIndex)),
     x: 400 + Math.random() * (WORLD_W - 800),
     y: 400 + Math.random() * (WORLD_H - 800),
-    linesOfCode: 0,
     lastActive: Date.now(),
     todayDate: getToday(),
   };
@@ -62,15 +59,6 @@ export function movePlayer(id: string, x: number, y: number) {
   p.y = Math.max(20, Math.min(WORLD_H - 20, y));
   p.lastActive = Date.now();
   checkDailyReset(p);
-  return p;
-}
-
-export function updateCode(id: string, linesOfCode: number) {
-  const p = players.get(id);
-  if (!p) return null;
-  checkDailyReset(p);
-  p.linesOfCode = Math.max(0, linesOfCode);
-  p.lastActive = Date.now();
   return p;
 }
 

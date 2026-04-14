@@ -69,16 +69,23 @@ export default function ChatPanel({
     }
   }, [isOpen]);
 
-  // Keyboard shortcut: backtick to toggle, Escape to close
+  // Keyboard shortcut: Enter or backtick to open, Escape to close
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const tag = document.activeElement?.tagName;
+      const isTyping = tag === "INPUT" || tag === "TEXTAREA";
+
       if (
         e.key === "`" &&
         !e.ctrlKey &&
         !e.metaKey &&
-        document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA"
+        !isTyping
       ) {
+        e.preventDefault();
+        onToggle();
+      }
+      // Enter opens chat when not already typing
+      if (e.key === "Enter" && !isOpen && !isTyping) {
         e.preventDefault();
         onToggle();
       }

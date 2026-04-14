@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import LoginScreen from "@/components/LoginScreen";
 import GameCanvas from "@/components/GameCanvas";
-import CodePanel from "@/components/CodePanel";
 import ChatPanel from "@/components/ChatPanel";
 import TokenStatsPanel from "@/components/TokenStatsPanel";
 import type { Player } from "@/lib/gameState";
@@ -19,17 +18,9 @@ export default function Home() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [localPlayer, setLocalPlayer] = useState<Player | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [code, setCode] = useState("");
-  const [codePanelOpen, setCodePanelOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
-  const codeRef = useRef(code);
-
-  // Keep code ref in sync
-  useEffect(() => {
-    codeRef.current = code;
-  }, [code]);
 
   // Load session from localStorage
   useEffect(() => {
@@ -42,12 +33,10 @@ export default function Home() {
         localStorage.removeItem("fatclaw_session");
       }
     }
-    const savedCode = localStorage.getItem("fatclaw_code");
-    if (savedCode) setCode(savedCode);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Join game
-  const handleJoin = useCallback(async (username: string, iconIndex: number) => {
+  const handleJoin = useCallback(async (username: string, iconIndex: number, _apiToken?: string) => {
     try {
       const res = await fetch("/api/join", {
         method: "POST",
@@ -123,31 +112,6 @@ export default function Home() {
     }
   }, [session]);
 
-  // Handle code changes
-  const handleCodeChange = useCallback((newCode: string) => {
-    setCode(newCode);
-    localStorage.setItem("fatclaw_code", newCode);
-  }, []);
-
-  // Report code lines to server (debounced)
-  useEffect(() => {
-    if (!session) return;
-    const linesOfCode = code.split("\n").filter((l) => l.trim().length > 0).length;
-    const timeout = setTimeout(async () => {
-      try {
-        await fetch("/api/code", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: session.id, linesOfCode }),
-        });
-      } catch {
-        // ignore
-      }
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [code, session]);
-
-  const linesOfCode = code.split("\n").filter((l) => l.trim().length > 0).length;
 
   // Not logged in yet
   if (!session || !localPlayer) {
@@ -159,6 +123,8 @@ export default function Home() {
       <GameCanvas
         localPlayer={localPlayer}
         players={players}
+        chatMessages={chatMessages}
+        chatOpen={chatPanelOpen}
         onMove={handleMove}
       />
       {!statsPanelOpen && (
@@ -179,13 +145,6 @@ export default function Home() {
         isOpen={chatPanelOpen}
         onToggle={() => setChatPanelOpen((o) => !o)}
         localUsername={session.username}
-      />
-      <CodePanel
-        code={code}
-        onChange={handleCodeChange}
-        linesOfCode={linesOfCode}
-        isOpen={codePanelOpen}
-        onToggle={() => setCodePanelOpen((o) => !o)}
       />
     </>
   );
