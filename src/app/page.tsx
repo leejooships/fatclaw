@@ -92,7 +92,9 @@ export default function Home() {
         if (res.ok) {
           const data: { players: Player[]; messages: ChatMessage[] } = await res.json();
           setPlayers(data.players);
-          setChatMessages(data.messages);
+          setChatMessages((prev) =>
+            prev.length === data.messages.length ? prev : data.messages
+          );
           // Update local player from server
           const me = data.players.find((p) => p.id === session.id);
           if (me) setLocalPlayer(me);
