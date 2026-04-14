@@ -28,20 +28,43 @@ export default function Home() {
     if (saved) {
       try {
         const data = JSON.parse(saved) as SessionData;
-        handleJoin(data.username, data.iconIndex);
+        // Rejoin by username (for reconnection after timeout)
+        rejoinByUsername(data.username, data.iconIndex);
       } catch {
         localStorage.removeItem("fatclaw_session");
       }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Join game
-  const handleJoin = useCallback(async (username: string, iconIndex: number, _apiToken?: string) => {
+  // Rejoin by username (for session restore / reconnection)
+  const rejoinByUsername = useCallback(async (username: string, iconIndex: number) => {
     try {
       const res = await fetch("/api/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, iconIndex }),
+      });
+      if (!res.ok) return;
+      const player: Player = await res.json();
+      setLocalPlayer(player);
+      setSession({ id: player.id, username: player.username, iconIndex: player.iconIndex });
+      localStorage.setItem("fatclaw_session", JSON.stringify({
+        id: player.id,
+        username: player.username,
+        iconIndex: player.iconIndex,
+      }));
+    } catch (e) {
+      console.error("Rejoin failed:", e);
+    }
+  }, []);
+
+  // Join game via Google sign-in
+  const handleJoin = useCallback(async (googleIdToken: string, iconIndex: number) => {
+    try {
+      const res = await fetch("/api/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ googleIdToken, iconIndex }),
       });
       if (!res.ok) return;
       const player: Player = await res.json();
@@ -72,7 +95,7 @@ export default function Home() {
           if (me) setLocalPlayer(me);
           else {
             // We got disconnected (5min timeout), rejoin
-            handleJoin(session.username, session.iconIndex);
+            rejoinByUsername(session.username, session.iconIndex);
           }
         }
       } catch {
@@ -82,7 +105,7 @@ export default function Home() {
     poll();
     const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
-  }, [session, handleJoin]);
+  }, [session, rejoinByUsername]);
 
   // Send chat message
   const handleSendChat = useCallback(async (text: string) => {

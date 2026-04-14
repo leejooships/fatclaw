@@ -7,6 +7,7 @@ export interface FatClawConfig {
   encrypted: boolean;
   username: string;
   serverUrl: string;
+  iconIndex: number;
 }
 
 const CONFIG_DIR = join(homedir(), ".fatclaw");

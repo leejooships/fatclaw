@@ -4,6 +4,7 @@ export interface Player {
   iconIndex: number; // 0-7
   x: number;
   y: number;
+  googleId?: string;
   lastActive: number; // timestamp
   todayDate: string; // YYYY-MM-DD for daily reset
 }
@@ -26,11 +27,17 @@ function checkDailyReset(player: Player) {
   }
 }
 
-export function joinGame(username: string, iconIndex: number): Player {
-  // Check if username already exists
+export function joinGame(username: string, iconIndex: number, googleId?: string): Player {
+  // Check if player already exists (by googleId first, then username)
   for (const p of players.values()) {
-    if (p.username.toLowerCase() === username.toLowerCase()) {
-      // Returning player - update icon if different, reset daily
+    if (googleId && p.googleId === googleId) {
+      p.username = username;
+      p.iconIndex = iconIndex;
+      p.lastActive = Date.now();
+      checkDailyReset(p);
+      return p;
+    }
+    if (!googleId && p.username.toLowerCase() === username.toLowerCase()) {
       p.iconIndex = iconIndex;
       p.lastActive = Date.now();
       checkDailyReset(p);
@@ -45,6 +52,7 @@ export function joinGame(username: string, iconIndex: number): Player {
     iconIndex: Math.min(7, Math.max(0, iconIndex)),
     x: 400 + Math.random() * (WORLD_W - 800),
     y: 400 + Math.random() * (WORLD_H - 800),
+    googleId,
     lastActive: Date.now(),
     todayDate: getToday(),
   };

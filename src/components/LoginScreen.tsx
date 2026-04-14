@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ICONS, drawClaudeIcon } from "@/lib/icons";
 
 interface LoginScreenProps {
-  onJoin: (username: string, iconIndex: number, apiToken: string) => void;
+  onJoin: (googleIdToken: string, iconIndex: number) => void;
 }
 
 function IconPreview({ index, selected, onClick }: { index: number; selected: boolean; onClick: () => void }) {
@@ -37,27 +37,48 @@ function IconPreview({ index, selected, onClick }: { index: number; selected: bo
 }
 
 export default function LoginScreen({ onJoin }: LoginScreenProps) {
-  const [username, setUsername] = useState("");
-  const [apiToken, setApiToken] = useState("");
   const [selectedIcon, setSelectedIcon] = useState(0);
   const [error, setError] = useState("");
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const selectedIconRef = useRef(selectedIcon);
+  const onJoinRef = useRef(onJoin);
+  selectedIconRef.current = selectedIcon;
+  onJoinRef.current = onJoin;
 
-  const handleSubmit = useCallback(() => {
-    const trimmed = username.trim();
-    if (trimmed.length < 1) {
-      setError("Enter a username");
+  const initGoogle = useCallback(() => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setError("Google Client ID not configured");
       return;
     }
-    if (trimmed.length > 16) {
-      setError("Username too long (max 16 chars)");
+
+    if (typeof google === "undefined" || !google.accounts?.id) {
+      setTimeout(initGoogle, 200);
       return;
     }
-    if (!apiToken.trim()) {
-      setError("Enter your API token");
-      return;
+
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: (response: { credential: string }) => {
+        onJoinRef.current(response.credential, selectedIconRef.current);
+      },
+    });
+
+    if (googleBtnRef.current) {
+      googleBtnRef.current.innerHTML = "";
+      google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: "filled_black",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        width: 320,
+      });
     }
-    onJoin(trimmed, selectedIcon, apiToken.trim());
-  }, [username, apiToken, selectedIcon, onJoin]);
+  }, []);
+
+  useEffect(() => {
+    initGoogle();
+  }, [initGoogle]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -68,44 +89,6 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
         <p className="text-gray-400 text-center text-sm mb-8">
           Hang out. Chat. Vibe.
         </p>
-
-        {/* Username */}
-        <div className="mb-6">
-          <label className="block text-sm text-gray-400 mb-2">Username</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => {
-              setUsername(e.target.value);
-              setError("");
-            }}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            placeholder="Enter your name..."
-            maxLength={16}
-            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-orange-400 transition-colors"
-            autoFocus
-          />
-          {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
-        </div>
-
-        {/* API Token */}
-        <div className="mb-6">
-          <label className="block text-sm text-gray-400 mb-2">API Token</label>
-          <input
-            type="password"
-            value={apiToken}
-            onChange={(e) => {
-              setApiToken(e.target.value);
-              setError("");
-            }}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            placeholder="sk-ant-..."
-            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-orange-400 transition-colors font-mono text-sm"
-          />
-          <p className="text-yellow-500/80 text-xs mt-1.5">
-            Limit your token to $1 max spend to be safe.
-          </p>
-        </div>
 
         {/* Icon selection */}
         <div className="mb-6">
@@ -122,16 +105,15 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
           </div>
         </div>
 
-        {/* Join button */}
-        <button
-          onClick={handleSubmit}
-          className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold text-lg transition-colors cursor-pointer"
-        >
-          Enter the World
-        </button>
+        {/* Google Sign-In */}
+        <div className="flex justify-center mb-4">
+          <div ref={googleBtnRef} />
+        </div>
+
+        {error && <p className="text-red-400 text-xs text-center mb-4">{error}</p>}
 
         <p className="text-xs text-gray-600 text-center mt-4">
-          Size resets daily. The grind never stops.
+          Sign in with Google to enter the world.
         </p>
       </div>
     </div>
