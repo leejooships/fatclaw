@@ -1,17 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-
-interface UserWeeklyStats {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  requestCount: number;
-}
+import type { Player } from "@/lib/gameState";
 
 interface TokenStatsPanelProps {
   isOpen: boolean;
   onToggle: () => void;
+  players: Player[];
 }
 
 function formatTokens(n: number): string {
@@ -20,34 +14,13 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export default function TokenStatsPanel({ isOpen, onToggle }: TokenStatsPanelProps) {
-  const [stats, setStats] = useState<Record<string, UserWeeklyStats>>({});
-  const [loading, setLoading] = useState(false);
-
-  const fetchStats = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/stats");
-      if (res.ok) {
-        setStats(await res.json());
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) fetchStats();
-  }, [isOpen, fetchStats]);
-
-  const sorted = Object.entries(stats).sort(
-    ([, a], [, b]) => b.totalTokens - a.totalTokens,
-  );
-  const maxTokens = sorted[0]?.[1]?.totalTokens ?? 1;
-
+export default function TokenStatsPanel({ isOpen, onToggle, players }: TokenStatsPanelProps) {
   if (!isOpen) return null;
+
+  const sorted = players
+    .filter((p) => p.weeklyTokens > 0)
+    .sort((a, b) => b.weeklyTokens - a.weeklyTokens);
+  const maxTokens = sorted[0]?.weeklyTokens ?? 1;
 
   return (
     <div className="fixed top-4 left-4 z-50 w-80">
@@ -61,7 +34,7 @@ export default function TokenStatsPanel({ isOpen, onToggle }: TokenStatsPanelPro
               <div className="w-3 h-3 rounded-full bg-green-500/80" />
             </div>
             <span className="text-xs text-gray-500 font-mono">
-              token usage (7d)
+              token usage (live)
             </span>
           </div>
           <button
@@ -74,44 +47,32 @@ export default function TokenStatsPanel({ isOpen, onToggle }: TokenStatsPanelPro
 
         {/* Content */}
         <div className="px-4 py-3 max-h-80 overflow-y-auto">
-          {loading && sorted.length === 0 && (
-            <p className="text-gray-600 text-xs text-center font-mono">
-              Loading...
-            </p>
-          )}
-          {!loading && sorted.length === 0 && (
+          {sorted.length === 0 && (
             <p className="text-gray-600 text-xs text-center font-mono">
               No usage data yet. Use the CLI to chat with Claude!
             </p>
           )}
           <div className="space-y-3">
-            {sorted.map(([username, data], i) => (
-              <div key={username}>
+            {sorted.map((player, i) => (
+              <div key={player.id}>
                 <div className="flex items-center justify-between text-xs font-mono mb-1">
                   <span className="text-gray-300">
                     <span className="text-gray-600 mr-1.5">#{i + 1}</span>
-                    {username}
+                    {player.username}
                   </span>
                   <span className="text-orange-400">
-                    {formatTokens(data.totalTokens)} tokens
+                    {formatTokens(player.weeklyTokens)} tokens
                   </span>
                 </div>
                 <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
-                      width: `${(data.totalTokens / maxTokens) * 100}%`,
+                      width: `${(player.weeklyTokens / maxTokens) * 100}%`,
                       background:
                         "linear-gradient(90deg, #d9773c, #e8a065, #ff6b6b)",
                     }}
                   />
-                </div>
-                <div className="flex justify-between text-xs text-gray-600 font-mono mt-0.5">
-                  <span>
-                    {formatTokens(data.inputTokens)} in /{" "}
-                    {formatTokens(data.outputTokens)} out
-                  </span>
-                  <span>{data.requestCount} reqs</span>
                 </div>
               </div>
             ))}

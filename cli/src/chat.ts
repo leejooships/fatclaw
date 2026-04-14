@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createInterface } from "node:readline";
-import { reportUsage, fetchMyStats } from "./stats.js";
 
 interface Message {
   role: "user" | "assistant";
@@ -9,8 +8,7 @@ interface Message {
 
 export async function startChat(
   apiKey: string,
-  username: string,
-  serverUrl: string,
+  onUsage: (inputTokens: number, outputTokens: number) => void,
   singlePrompt?: string,
 ): Promise<void> {
   const client = new Anthropic({ apiKey });
@@ -33,12 +31,7 @@ export async function startChat(
           .join("") || "(no text response)";
       console.log(text);
       console.log();
-      reportUsage(serverUrl, {
-        username,
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        timestamp: Date.now(),
-      });
+      onUsage(response.usage.input_tokens, response.usage.output_tokens);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       console.log(`\x1b[31mError: ${msg}\x1b[0m`);
@@ -54,12 +47,11 @@ export async function startChat(
 
   console.log("\x1b[36m╔══════════════════════════════════════╗\x1b[0m");
   console.log("\x1b[36m║\x1b[0m  Vibe with Friends — Claude Chat     \x1b[36m║\x1b[0m");
-  console.log("\x1b[36m║\x1b[0m  Token usage reported to dashboard   \x1b[36m║\x1b[0m");
+  console.log("\x1b[36m║\x1b[0m  Token usage grows your character     \x1b[36m║\x1b[0m");
   console.log("\x1b[36m║\x1b[0m                                      \x1b[36m║\x1b[0m");
   console.log("\x1b[36m║\x1b[0m  Commands:                           \x1b[36m║\x1b[0m");
   console.log("\x1b[36m║\x1b[0m    /quit   — exit                    \x1b[36m║\x1b[0m");
   console.log("\x1b[36m║\x1b[0m    /clear  — reset conversation      \x1b[36m║\x1b[0m");
-  console.log("\x1b[36m║\x1b[0m    /stats  — view your weekly usage  \x1b[36m║\x1b[0m");
   console.log("\x1b[36m║\x1b[0m    /help   — show this message       \x1b[36m║\x1b[0m");
   console.log("\x1b[36m╚══════════════════════════════════════╝\x1b[0m");
   console.log();
@@ -87,15 +79,9 @@ export async function startChat(
       continue;
     }
 
-    if (trimmed === "/stats") {
-      await fetchMyStats(serverUrl, username);
-      continue;
-    }
-
     if (trimmed === "/help") {
       console.log("  /quit   — exit");
       console.log("  /clear  — reset conversation");
-      console.log("  /stats  — view your weekly usage");
       console.log("  /help   — show this message");
       continue;
     }
@@ -122,17 +108,11 @@ export async function startChat(
 
       messages.push({ role: "assistant", content: text });
 
-      // Report token usage (fire-and-forget)
-      reportUsage(serverUrl, {
-        username,
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        timestamp: Date.now(),
-      });
+      // Report token usage via callback
+      onUsage(response.usage.input_tokens, response.usage.output_tokens);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       console.log(`\x1b[31mError: ${msg}\x1b[0m`);
-      // Remove the failed user message so conversation stays consistent
       messages.pop();
     }
   }

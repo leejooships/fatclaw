@@ -3,16 +3,12 @@ import { createInterface } from "node:readline";
 import { readConfig, writeConfig, type FatClawConfig } from "./config.js";
 import { encryptKey, decryptKey } from "./crypto.js";
 import { startChat } from "./chat.js";
-import {
-  joinGame,
-  movePlayer,
-  sendChat,
-  getPlayers,
-  type Player,
-} from "./game.js";
+import { getClaudeCodeWeeklyTokens } from "./claude-usage.js";
 
 const MOVE_STEP = 60;
-const DEFAULT_SERVER = "https://fatclaw.vercel.app";
+const WORLD_MAX = 2980;
+const WORLD_MIN = 20;
+const DEFAULT_SERVER = "fatclaw-party.h-leejoo99.workers.dev";
 
 const PLAYER_COLORS = [
   "\x1b[38;5;208m", // orange
@@ -38,10 +34,16 @@ const DIRECTIONS: Record<string, [number, number]> = {
   e: [MOVE_STEP, 0],  w: [-MOVE_STEP, 0],
   ne: [MOVE_STEP, -MOVE_STEP], nw: [-MOVE_STEP, -MOVE_STEP],
   se: [MOVE_STEP, MOVE_STEP],  sw: [-MOVE_STEP, MOVE_STEP],
-  // WASD aliases
-  W: [0, -MOVE_STEP], S: [0, MOVE_STEP],
-  A: [-MOVE_STEP, 0], D: [MOVE_STEP, 0],
 };
+
+interface Player {
+  id: string;
+  username: string;
+  iconIndex: number;
+  x: number;
+  y: number;
+  weeklyTokens: number;
+}
 
 function playerColor(iconIndex: number): string {
   return PLAYER_COLORS[iconIndex % PLAYER_COLORS.length];
@@ -60,6 +62,12 @@ function ask(
   return new Promise((resolve) => {
     rl.question(question, (answer) => resolve(answer.trim()));
   });
+}
+
+function getWsUrl(host: string): string {
+  if (host.startsWith("ws://") || host.startsWith("wss://")) return host;
+  const protocol = host.includes("localhost") ? "ws" : "wss";
+  return `${protocol}://${host}/parties/gameserver/main`;
 }
 
 async function setup(
@@ -86,7 +94,7 @@ async function setup(
 
   const serverUrl = await ask(
     rl,
-    `${CYAN}Server URL (default: ${DEFAULT_SERVER}): ${RESET}`,
+    `${CYAN}Party server host (default: ${DEFAULT_SERVER}): ${RESET}`,
   );
 
   let config: FatClawConfig;
@@ -143,35 +151,20 @@ ${YELLOW}Other:${RESET}
 `);
 }
 
+function clamp(val: number): number {
+  return Math.max(WORLD_MIN, Math.min(WORLD_MAX, val));
+}
+
 async function startGame(config: FatClawConfig, apiKey: string) {
   const { serverUrl, username, iconIndex } = config;
+  const wsUrl = getWsUrl(serverUrl);
 
   console.log(`\n${CYAN}Connecting to ${DIM}${serverUrl}${RESET}${CYAN} as ${BOLD}${username}${RESET}${CYAN}...${RESET}`);
 
-  let player: Player;
-  try {
-    player = await joinGame(serverUrl, username, iconIndex);
-  } catch (e) {
-    console.error(`${RED}Failed to join: ${e}${RESET}`);
-    process.exit(1);
-  }
-
-  // Get initial state
-  let knownPlayerIds = new Set<string>();
-  const seenMessages = new Set<string>();
-
-  try {
-    const initial = await getPlayers(serverUrl);
-    for (const p of initial.players) knownPlayerIds.add(p.id);
-    // Seed seen messages so we don't replay history
-    for (const msg of initial.messages) seenMessages.add(msg.id);
-
-    console.log(`${GREEN}✓ Connected! ${initial.players.length} player(s) online${RESET}`);
-  } catch {
-    console.log(`${GREEN}✓ Connected!${RESET}`);
-  }
-
-  printHelp();
+  let player: Player = { id: "", username, iconIndex, x: 0, y: 0, weeklyTokens: 0 };
+  const knownPlayers = new Map<string, Player>();
+  let connected = false;
+  let intentionalClose = false;
 
   const rl = createInterface({
     input: process.stdin,
@@ -179,62 +172,112 @@ async function startGame(config: FatClawConfig, apiKey: string) {
     prompt: `${DIM}>${RESET} `,
   });
 
-  // Clear current line and print message above the prompt
   function printAbove(text: string) {
     process.stdout.write(`\r\x1b[K${text}\n`);
     rl.prompt(true);
   }
 
-  // Poll: keepalive + incoming messages + player tracking
-  const pollInterval = setInterval(async () => {
+  // WebSocket with auto-reconnect
+  let ws: WebSocket;
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "join", username, iconIndex }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data as string);
+        switch (data.type) {
+          case "init":
+            player = data.player;
+            connected = true;
+            knownPlayers.clear();
+            for (const p of data.players as Player[]) knownPlayers.set(p.id, p);
+            if (data.players.length > 0) {
+              console.log(`${GREEN}✓ Connected! ${data.players.length} player(s) online${RESET}`);
+            } else {
+              console.log(`${GREEN}✓ Connected!${RESET}`);
+            }
+            printHelp();
+            rl.prompt();
+            break;
+
+          case "player_joined":
+            knownPlayers.set(data.player.id, data.player);
+            if (data.player.id !== player.id) {
+              printAbove(`${DIM}→ ${playerColor(data.player.iconIndex)}${data.player.username}${RESET}${DIM} joined${RESET}`);
+            }
+            break;
+
+          case "player_left":
+            knownPlayers.delete(data.id);
+            if (data.id !== player.id) {
+              printAbove(`${DIM}← ${data.username} left${RESET}`);
+            }
+            break;
+
+          case "player_moved": {
+            const p = knownPlayers.get(data.id);
+            if (p) { p.x = data.x; p.y = data.y; }
+            break;
+          }
+
+          case "chat":
+            if (data.message.username !== username) {
+              printAbove(`${playerColor(data.message.iconIndex)}${data.message.username}${RESET}: ${data.message.text}`);
+            }
+            break;
+
+          case "player_updated": {
+            const up = knownPlayers.get(data.id);
+            if (up) up.weeklyTokens = data.weeklyTokens;
+            if (data.id === player.id) player.weeklyTokens = data.weeklyTokens;
+            break;
+          }
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onclose = () => {
+      if (!intentionalClose) {
+        connected = false;
+        printAbove(`${YELLOW}⚠ Disconnected. Reconnecting...${RESET}`);
+        setTimeout(connect, 2000);
+      }
+    };
+
+    ws.onerror = () => {};
+  }
+
+  connect();
+
+  // Wait for initial connection
+  await new Promise<void>((resolve) => {
+    const check = setInterval(() => {
+      if (connected) { clearInterval(check); resolve(); }
+    }, 100);
+  });
+
+  // Sync Claude Code token usage
+  async function syncClaudeUsage() {
     try {
-      const data = await getPlayers(serverUrl);
-
-      // Track joins/leaves
-      const currentIds = new Set(data.players.map((p) => p.id));
-      for (const p of data.players) {
-        if (!knownPlayerIds.has(p.id) && p.id !== player.id) {
-          printAbove(`${DIM}→ ${playerColor(p.iconIndex)}${p.username}${RESET}${DIM} joined${RESET}`);
-        }
-      }
-      for (const id of knownPlayerIds) {
-        if (!currentIds.has(id) && id !== player.id) {
-          printAbove(`${DIM}← player left${RESET}`);
-        }
-      }
-      knownPlayerIds = currentIds;
-
-      // New chat messages
-      for (const msg of data.messages) {
-        if (!seenMessages.has(msg.id) && msg.username !== username) {
-          seenMessages.add(msg.id);
-          printAbove(`${playerColor(msg.iconIndex)}${msg.username}${RESET}: ${msg.text}`);
-        }
-      }
-
-      // Sync position
-      const me = data.players.find((p) => p.id === player.id);
-      if (me) {
-        player.x = me.x;
-        player.y = me.y;
-      } else {
-        // Got disconnected, rejoin silently
-        try {
-          const rejoined = await joinGame(serverUrl, username, iconIndex);
-          player.id = rejoined.id;
-          player.x = rejoined.x;
-          player.y = rejoined.y;
-          printAbove(`${YELLOW}⚠ Reconnected${RESET}`);
-        } catch {
-          // will retry next poll
-        }
+      const tokens = await getClaudeCodeWeeklyTokens();
+      if (tokens > 0) {
+        ws.send(JSON.stringify({ type: "sync_tokens", weeklyTokens: tokens }));
       }
     } catch {
-      // ignore poll errors
+      // ignore
     }
-  }, 2000);
+  }
 
-  rl.prompt();
+  // Initial sync + periodic refresh (every 30s)
+  syncClaudeUsage();
+  const usageSyncInterval = setInterval(syncClaudeUsage, 30_000);
 
   rl.on("line", async (line: string) => {
     const input = line.trim();
@@ -242,7 +285,9 @@ async function startGame(config: FatClawConfig, apiKey: string) {
 
     // Quit
     if (input === "/quit" || input === "/q") {
-      clearInterval(pollInterval);
+      intentionalClose = true;
+      clearInterval(usageSyncInterval);
+      ws.close();
       rl.close();
       console.log(`${CYAN}Bye!${RESET}`);
       process.exit(0);
@@ -264,33 +309,29 @@ async function startGame(config: FatClawConfig, apiKey: string) {
 
     // Players
     if (input === "/players" || input === "/p") {
-      try {
-        const data = await getPlayers(serverUrl);
-        console.log(`\n${CYAN}${BOLD}${data.players.length} player(s) online:${RESET}`);
-        for (const p of data.players) {
-          const color = playerColor(p.iconIndex);
-          const you = p.id === player.id ? ` ${YELLOW}(you)${RESET}` : "";
-          const tokens = (p as Player & { weeklyTokens?: number }).weeklyTokens;
-          const tokenStr = tokens ? ` ${DIM}${formatTokens(tokens)} tokens${RESET}` : "";
-          console.log(`  ${color}${p.username}${RESET}${you}${tokenStr}`);
-        }
-        console.log();
-      } catch (e) {
-        console.error(`${RED}Error: ${e}${RESET}`);
+      console.log(`\n${CYAN}${BOLD}${knownPlayers.size} player(s) online:${RESET}`);
+      for (const p of knownPlayers.values()) {
+        const color = playerColor(p.iconIndex);
+        const you = p.id === player.id ? ` ${YELLOW}(you)${RESET}` : "";
+        const tokenStr = p.weeklyTokens ? ` ${DIM}${formatTokens(p.weeklyTokens)} tokens${RESET}` : "";
+        console.log(`  ${color}${p.username}${RESET}${you}${tokenStr}`);
       }
+      console.log();
       rl.prompt();
       return;
     }
 
     // WASD movement (single letter)
     if (/^[wasd]$/i.test(input)) {
-      const delta = DIRECTIONS[input.toUpperCase()];
+      const deltas: Record<string, [number, number]> = {
+        W: [0, -MOVE_STEP], S: [0, MOVE_STEP],
+        A: [-MOVE_STEP, 0], D: [MOVE_STEP, 0],
+      };
+      const delta = deltas[input.toUpperCase()];
       if (delta) {
-        try {
-          const updated = await movePlayer(serverUrl, player.id, player.x + delta[0], player.y + delta[1]);
-          player.x = updated.x;
-          player.y = updated.y;
-        } catch { /* ignore */ }
+        player.x = clamp(player.x + delta[0]);
+        player.y = clamp(player.y + delta[1]);
+        ws.send(JSON.stringify({ type: "move", x: player.x, y: player.y }));
       }
       rl.prompt();
       return;
@@ -305,14 +346,10 @@ async function startGame(config: FatClawConfig, apiKey: string) {
         rl.prompt();
         return;
       }
-      try {
-        const updated = await movePlayer(serverUrl, player.id, player.x + delta[0], player.y + delta[1]);
-        player.x = updated.x;
-        player.y = updated.y;
-        console.log(`${DIM}Moved to (${Math.round(player.x)}, ${Math.round(player.y)})${RESET}`);
-      } catch (e) {
-        console.error(`${RED}Move failed: ${e}${RESET}`);
-      }
+      player.x = clamp(player.x + delta[0]);
+      player.y = clamp(player.y + delta[1]);
+      ws.send(JSON.stringify({ type: "move", x: player.x, y: player.y }));
+      console.log(`${DIM}Moved to (${Math.round(player.x)}, ${Math.round(player.y)})${RESET}`);
       rl.prompt();
       return;
     }
@@ -327,7 +364,9 @@ async function startGame(config: FatClawConfig, apiKey: string) {
       }
       console.log(`${DIM}Asking Claude...${RESET}`);
       try {
-        await startChat(apiKey, username, serverUrl, prompt);
+        await startChat(apiKey, (inp, out) => {
+          ws.send(JSON.stringify({ type: "stats", inputTokens: inp, outputTokens: out }));
+        }, prompt);
       } catch (e) {
         console.error(`${RED}Claude error: ${e}${RESET}`);
       }
@@ -337,7 +376,8 @@ async function startGame(config: FatClawConfig, apiKey: string) {
 
     // Reconfigure
     if (input === "/setup") {
-      clearInterval(pollInterval);
+      intentionalClose = true;
+      ws.close();
       rl.close();
       const setupRl = createInterface({ input: process.stdin, output: process.stdout });
       await setup(setupRl);
@@ -347,18 +387,15 @@ async function startGame(config: FatClawConfig, apiKey: string) {
     }
 
     // Default: send as chat message
-    try {
-      const msg = await sendChat(serverUrl, player.id, input);
-      seenMessages.add(msg.id);
-      console.log(`${playerColor(iconIndex)}${username}${RESET}: ${input}`);
-    } catch (e) {
-      console.error(`${RED}Chat failed: ${e}${RESET}`);
-    }
+    ws.send(JSON.stringify({ type: "chat", text: input }));
+    console.log(`${playerColor(iconIndex)}${username}${RESET}: ${input}`);
     rl.prompt();
   });
 
   rl.on("close", () => {
-    clearInterval(pollInterval);
+    intentionalClose = true;
+    clearInterval(usageSyncInterval);
+    ws.close();
     process.exit(0);
   });
 }
