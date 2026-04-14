@@ -20,5 +20,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ username: payload.name.slice(0, 16) });
+  return NextResponse.json({ firstName: payload.firstName.slice(0, 16) });
 }

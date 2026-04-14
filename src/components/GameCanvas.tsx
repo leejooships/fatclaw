@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { ICONS, drawClaudeIcon } from "@/lib/icons";
 import { WORLD_W, WORLD_H } from "@/lib/gameState";
 import type { Player } from "@/lib/gameState";
@@ -513,24 +513,28 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
       // UI overlay (minimap)
       drawMinimap(ctx, players, localPlayer.id, vw, vh);
 
-      // Player count
+      // Player count (top center)
+      ctx.textAlign = "center";
+      const countText = `${players.length} player${players.length !== 1 ? "s" : ""} online`;
+      ctx.font = "bold 13px sans-serif";
+      const numWidth = ctx.measureText(`${players.length}`).width;
+      ctx.font = "13px sans-serif";
+      const restWidth = ctx.measureText(` player${players.length !== 1 ? "s" : ""} online`).width;
+      const totalWidth = numWidth + restWidth;
+      const countPad = 24;
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.beginPath();
-      ctx.roundRect(12, 12, 130, 32, 8);
+      ctx.roundRect(vw / 2 - (totalWidth + countPad) / 2, 12, totalWidth + countPad, 32, 8);
       ctx.fill();
+      // Draw number bold, rest normal
+      ctx.textAlign = "left";
+      const countStartX = vw / 2 - totalWidth / 2;
+      ctx.fillStyle = "white";
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillText(`${players.length}`, countStartX, 33);
       ctx.fillStyle = "#a0a0a0";
       ctx.font = "13px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(`${players.length} player${players.length !== 1 ? "s" : ""} online`, 24, 33);
-
-      // Controls hint
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.beginPath();
-      ctx.roundRect(12, vh - 44, 200, 32, 8);
-      ctx.fill();
-      ctx.fillStyle = "#888";
-      ctx.font = "11px sans-serif";
-      ctx.fillText("WASD to move  |  Enter to chat", 24, vh - 24);
+      ctx.fillText(` player${players.length !== 1 ? "s" : ""} online`, countStartX + numWidth, 33);
 
       animFrameRef.current = requestAnimationFrame(loop);
     };
@@ -539,11 +543,24 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [players, localPlayer, onMove, getSpeed]);
 
+  const [showHint, setShowHint] = useState(true);
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 w-full h-full"
-      style={{ cursor: "crosshair" }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 w-full h-full"
+        style={{ cursor: "crosshair" }}
+      />
+      {showHint && (
+        <button
+          onClick={() => setShowHint(false)}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900/90 border border-gray-600 rounded-xl px-5 py-3 text-sm font-mono text-gray-300 hover:bg-gray-800 transition-colors cursor-pointer flex items-center gap-3"
+        >
+          <span className="text-white font-bold">WASD</span> to move
+          <span className="text-gray-500 text-xs ml-1">dismiss</span>
+        </button>
+      )}
+    </>
   );
 }

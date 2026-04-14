@@ -77,91 +77,166 @@ export function drawClaudeIcon(
   size: number, // base size 1 = normal
 ) {
   const s = size;
-  const bodyW = 28 * s;
-  const bodyH = 24 * s;
-  const headR = 14 * s;
+  const bodyW = 22 * s;
+  const bodyH = 20 * s;
+  const headR = 22 * s;
 
   ctx.save();
 
-  // Shadow
-  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  // Drop shadow
+  ctx.fillStyle = "rgba(0,0,0,0.10)";
   ctx.beginPath();
-  ctx.ellipse(cx, cy + bodyH * 0.6, bodyW * 0.8, bodyH * 0.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + bodyH * 0.7, bodyW * 0.9, bodyH * 0.15, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body
+  // Body (small chibi body)
   ctx.fillStyle = icon.bodyColor;
   ctx.beginPath();
-  ctx.ellipse(cx, cy, bodyW, bodyH, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + 2 * s, bodyW, bodyH, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Belly
+  // Belly highlight
   ctx.fillStyle = icon.bellyColor;
   ctx.beginPath();
-  ctx.ellipse(cx, cy + bodyH * 0.1, bodyW * 0.55, bodyH * 0.55, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + 4 * s, bodyW * 0.55, bodyH * 0.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Feet
-  const footY = cy + bodyH * 0.7;
+  // Tiny feet
+  const footY = cy + bodyH * 0.8;
   ctx.fillStyle = icon.accentColor;
   ctx.beginPath();
-  ctx.ellipse(cx - bodyW * 0.35, footY, 6 * s, 4 * s, -0.2, 0, Math.PI * 2);
+  ctx.ellipse(cx - bodyW * 0.4, footY, 6 * s, 4 * s, -0.1, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(cx + bodyW * 0.35, footY, 6 * s, 4 * s, 0.2, 0, Math.PI * 2);
+  ctx.ellipse(cx + bodyW * 0.4, footY, 6 * s, 4 * s, 0.1, 0, Math.PI * 2);
   ctx.fill();
 
-  // Arms (little stubs)
+  // Arms (tiny nubs)
   ctx.fillStyle = icon.bodyColor;
   ctx.beginPath();
-  ctx.ellipse(cx - bodyW * 0.9, cy - bodyH * 0.1, 7 * s, 5 * s, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(cx - bodyW * 0.95, cy, 7 * s, 5 * s, -0.6, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(cx + bodyW * 0.9, cy - bodyH * 0.1, 7 * s, 5 * s, 0.4, 0, Math.PI * 2);
+  ctx.ellipse(cx + bodyW * 0.95, cy, 7 * s, 5 * s, 0.6, 0, Math.PI * 2);
   ctx.fill();
 
-  // Head
+  // Head (huge anime head)
   const headY = cy - bodyH * 0.7;
   ctx.fillStyle = icon.bodyColor;
   ctx.beginPath();
   ctx.arc(cx, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyes
-  const eyeY = headY - 1 * s;
-  const eyeSpacing = 5 * s;
-  ctx.fillStyle = "#1a1a2e";
+  // Hair highlight (anime sheen on head)
+  ctx.fillStyle = icon.bellyColor;
+  ctx.globalAlpha = 0.25;
   ctx.beginPath();
-  ctx.arc(cx - eyeSpacing, eyeY, 2.5 * s, 0, Math.PI * 2);
+  ctx.ellipse(cx - headR * 0.3, headY - headR * 0.5, headR * 0.5, headR * 0.35, -0.4, 0, Math.PI * 2);
   ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx + eyeSpacing, eyeY, 2.5 * s, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.globalAlpha = 1;
 
-  // Eye shine
+  // --- ANIME EYES ---
+  const eyeY = headY + 2 * s;
+  const eyeSpacing = 8 * s;
+  const eyeW = 6 * s;
+  const eyeH = 7.5 * s;
+
+  // White sclera (tall ovals)
   ctx.fillStyle = "white";
   ctx.beginPath();
-  ctx.arc(cx - eyeSpacing + 1 * s, eyeY - 1 * s, 1 * s, 0, Math.PI * 2);
+  ctx.ellipse(cx - eyeSpacing, eyeY, eyeW, eyeH, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(cx + eyeSpacing + 1 * s, eyeY - 1 * s, 1 * s, 0, Math.PI * 2);
+  ctx.ellipse(cx + eyeSpacing, eyeY, eyeW, eyeH, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Blush
-  ctx.fillStyle = "rgba(255, 100, 100, 0.3)";
+  // Iris (colored, large)
+  ctx.fillStyle = icon.accentColor;
   ctx.beginPath();
-  ctx.ellipse(cx - eyeSpacing - 3 * s, eyeY + 4 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx - eyeSpacing + 0.5 * s, eyeY + 1 * s, eyeW * 0.75, eyeH * 0.7, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(cx + eyeSpacing + 3 * s, eyeY + 4 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + eyeSpacing + 0.5 * s, eyeY + 1 * s, eyeW * 0.75, eyeH * 0.7, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Mouth (smile)
-  ctx.strokeStyle = "#1a1a2e";
-  ctx.lineWidth = 1.5 * s;
+  // Pupil (dark center)
+  ctx.fillStyle = "#0a0a1a";
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing + 0.5 * s, eyeY + 1.5 * s, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing + 0.5 * s, eyeY + 1.5 * s, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Big anime eye shine (main highlight, top-right)
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing + 2.5 * s, eyeY - 2 * s, 2.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing + 2.5 * s, eyeY - 2 * s, 2.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Secondary small shine (bottom-left)
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing - 1.5 * s, eyeY + 2 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing - 1.5 * s, eyeY + 2 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tiny third sparkle
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing + 1 * s, eyeY + 3 * s, 0.6 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing + 1 * s, eyeY + 3 * s, 0.6 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Upper eyelid line (anime style thick top)
+  ctx.strokeStyle = "#0a0a1a";
+  ctx.lineWidth = 2 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.arc(cx, eyeY + 3 * s, 3 * s, 0.2, Math.PI - 0.2);
+  ctx.ellipse(cx - eyeSpacing, eyeY, eyeW, eyeH, 0, Math.PI + 0.4, -0.4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(cx + eyeSpacing, eyeY, eyeW, eyeH, 0, Math.PI + 0.4, -0.4);
+  ctx.stroke();
+
+  // Blush (anime style — three small lines or oval)
+  ctx.fillStyle = "rgba(255, 100, 120, 0.4)";
+  ctx.beginPath();
+  ctx.ellipse(cx - eyeSpacing - 5 * s, eyeY + 6 * s, 4.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + eyeSpacing + 5 * s, eyeY + 6 * s, 4.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Blush lines
+  ctx.strokeStyle = "rgba(255, 100, 120, 0.3)";
+  ctx.lineWidth = 1 * s;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx - eyeSpacing - 5 * s + i * 2.5 * s, eyeY + 5 * s);
+    ctx.lineTo(cx - eyeSpacing - 5 * s + i * 2.5 * s, eyeY + 7 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + eyeSpacing + 5 * s + i * 2.5 * s, eyeY + 5 * s);
+    ctx.lineTo(cx + eyeSpacing + 5 * s + i * 2.5 * s, eyeY + 7 * s);
+    ctx.stroke();
+  }
+
+  // Mouth (small cat-like :3 mouth)
+  ctx.strokeStyle = "#0a0a1a";
+  ctx.lineWidth = 1.5 * s;
+  ctx.lineCap = "round";
+  // Left curve
+  ctx.beginPath();
+  ctx.arc(cx - 2 * s, eyeY + 8 * s, 2.5 * s, -0.3, Math.PI * 0.7);
+  ctx.stroke();
+  // Right curve
+  ctx.beginPath();
+  ctx.arc(cx + 2 * s, eyeY + 8 * s, 2.5 * s, Math.PI * 0.3, Math.PI + 0.3);
   ctx.stroke();
 
   // Accessory

@@ -48,6 +48,8 @@ export class GameServer extends Server {
           return this.handleStats(conn, data);
         case "sync_tokens":
           return this.handleSyncTokens(conn, data);
+        case "sync_for_user":
+          return this.handleSyncForUser(data);
       }
     } catch {
       // ignore malformed messages
@@ -184,6 +186,26 @@ export class GameServer extends Server {
         weeklyTokens: player.weeklyTokens,
       }),
     );
+  }
+
+  handleSyncForUser(data: { username: string; weeklyTokens: number }) {
+    const username = (data.username || "").toLowerCase();
+    if (!username) return;
+    const tokens = Math.max(0, data.weeklyTokens || 0);
+    for (const player of this.players.values()) {
+      if (player.username.toLowerCase() === username) {
+        if (tokens === player.weeklyTokens) return;
+        player.weeklyTokens = tokens;
+        this.broadcast(
+          JSON.stringify({
+            type: "player_updated",
+            id: player.id,
+            weeklyTokens: player.weeklyTokens,
+          }),
+        );
+        return;
+      }
+    }
   }
 
   handleStats(conn: Connection, data: { inputTokens: number; outputTokens: number }) {
