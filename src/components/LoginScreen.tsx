@@ -129,8 +129,10 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
           <p className="text-sm text-gray-400 text-center mb-3">
             Or join from your terminal
           </p>
-          <div className="bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300">
-            <p className="text-gray-500 mb-1"># Clone and run the CLI</p>
+          <div className="bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
+            <p className="text-gray-500"># Install Bun (if you don&apos;t have it)</p>
+            <p>curl -fsSL https://bun.sh/install | bash</p>
+            <p className="text-gray-500 mt-2"># Clone and run</p>
             <p>git clone https://github.com/leejooships/fatclaw.git</p>
             <p>cd fatclaw/cli</p>
             <p>bun install && bun start</p>

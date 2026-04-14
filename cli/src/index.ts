@@ -67,7 +67,7 @@ function ask(
 function getWsUrl(host: string): string {
   if (host.startsWith("ws://") || host.startsWith("wss://")) return host;
   const protocol = host.includes("localhost") ? "ws" : "wss";
-  return `${protocol}://${host}/parties/gameserver/main`;
+  return `${protocol}://${host}/parties/game-server/main`;
 }
 
 async function setup(
