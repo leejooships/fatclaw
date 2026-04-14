@@ -67,11 +67,16 @@ async function main() {
     }
 
     // Save it so they don't have to enter it again
-    if (config) {
-      config.syncUsername = username;
-      writeConfig(config);
-      console.log(`${GREEN}Saved! Next time just run: bun run sync${RESET}\n`);
-    }
+    const updatedConfig = config || {
+      apiKey: "",
+      encrypted: false,
+      username: username,
+      serverUrl: DEFAULT_SERVER,
+      iconIndex: 0,
+    };
+    updatedConfig.syncUsername = username;
+    writeConfig(updatedConfig);
+    console.log(`${GREEN}Saved! Next time just run: bun run sync${RESET}\n`);
   }
 
   const wsUrl = getWsUrl(serverUrl);

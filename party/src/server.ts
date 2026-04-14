@@ -34,6 +34,8 @@ export class GameServer extends Server {
   messages: ChatMessage[] = [];
   rateLimits = new Map<string, number[]>();
   lastMoveBroadcast = new Map<string, number>();
+  /** Persists token data across disconnects, keyed by lowercase username */
+  tokenStore = new Map<string, number>();
 
   onConnect(_conn: Connection) {
     // Wait for "join" message before creating a player
@@ -111,13 +113,14 @@ export class GameServer extends Server {
       }
     }
 
+    const storedTokens = this.tokenStore.get(username.toLowerCase()) || 0;
     const player: Player = {
       id: conn.id,
       username,
       iconIndex: Math.min(7, Math.max(0, data.iconIndex ?? 0)),
       x: 400 + Math.random() * (WORLD_W - 800),
       y: 400 + Math.random() * (WORLD_H - 800),
-      weeklyTokens: 0,
+      weeklyTokens: storedTokens,
       isAdmin,
     };
     this.players.set(conn.id, player);
@@ -198,6 +201,7 @@ export class GameServer extends Server {
     const tokens = Math.min(MAX_WEEKLY_TOKENS, Math.max(0, data.weeklyTokens || 0));
     if (tokens === player.weeklyTokens) return;
     player.weeklyTokens = tokens;
+    this.tokenStore.set(player.username.toLowerCase(), tokens);
     this.broadcast(
       JSON.stringify({
         type: "player_updated",
@@ -259,6 +263,11 @@ export class GameServer extends Server {
     const username = (data.username || "").toLowerCase().trim();
     if (!username) return;
     const tokens = Math.min(MAX_WEEKLY_TOKENS, Math.max(0, data.weeklyTokens || 0));
+
+    // Always persist to tokenStore so data survives disconnects
+    this.tokenStore.set(username, tokens);
+
+    // If player is currently online, update them live
     for (const player of this.players.values()) {
       if (player.username.toLowerCase() === username) {
         if (tokens === player.weeklyTokens) return;
@@ -284,6 +293,7 @@ export class GameServer extends Server {
     const tokens = input + output;
     if (tokens <= 0) return;
     player.weeklyTokens = Math.min(MAX_WEEKLY_TOKENS, player.weeklyTokens + tokens);
+    this.tokenStore.set(player.username.toLowerCase(), player.weeklyTokens);
     this.broadcast(
       JSON.stringify({
         type: "player_updated",
