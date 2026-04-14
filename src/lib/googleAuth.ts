@@ -1,6 +1,7 @@
 interface GoogleTokenPayload {
   sub: string;
   name: string;
+  firstName: string;
   email: string;
   picture: string;
 }
@@ -19,9 +20,12 @@ export async function verifyGoogleToken(
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (clientId && data.aud !== clientId) return null;
 
+    const fullName = data.name ?? data.email?.split("@")[0] ?? "Anonymous";
+    const firstName = data.given_name ?? fullName.split(" ")[0] ?? "Anonymous";
     return {
       sub: data.sub,
-      name: data.name ?? data.email?.split("@")[0] ?? "Anonymous",
+      name: fullName,
+      firstName,
       email: data.email ?? "",
       picture: data.picture ?? "",
     };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { ChatMessage } from "@/lib/chatState";
 
 const ICON_COLORS = [
@@ -43,6 +43,26 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevCountRef = useRef(messages.length);
+  const [minimized, setMinimized] = useState(false);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    setDragging(true);
+    dragOffset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+  }, [position]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      setPosition({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [dragging]);
 
   // Track unread messages when panel is closed
   useEffect(() => {
@@ -114,6 +134,7 @@ export default function ChatPanel({
         >
           <span className="text-lg">💬</span>
           <span>Chat</span>
+          <span className="text-gray-600 text-xs">(Enter)</span>
           {unreadCount > 0 && (
             <span className="bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
               {unreadCount > 9 ? "9+" : unreadCount}
@@ -124,89 +145,94 @@ export default function ChatPanel({
 
       {/* Chat panel */}
       <div
-        className={`fixed bottom-0 left-0 z-40 transition-transform duration-300 ${
+        className={`fixed z-40 transition-transform duration-300 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{ width: "360px", height: "min(500px, 70vh)" }}
+        style={{
+          width: "360px",
+          height: minimized ? "auto" : "min(500px, 70vh)",
+          bottom: `${-position.y}px`,
+          left: `${position.x}px`,
+        }}
       >
         <div className="bg-[#1a1a2e]/95 backdrop-blur-md border-r border-t border-gray-700 h-full flex flex-col rounded-tr-xl">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+          <div
+            className={`flex items-center justify-between px-4 py-2 border-b border-gray-800 ${dragging ? "cursor-grabbing" : ""}`}
+          >
             <div className="flex items-center gap-3">
               <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                <button onClick={onToggle} className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer" title="Close" />
+                <button onClick={() => setMinimized((m) => !m)} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 cursor-pointer" title="Minimize" />
+                <button onMouseDown={onMouseDown} className="w-3 h-3 rounded-full bg-green-500/80 hover:bg-green-400 cursor-grab active:cursor-grabbing" title="Drag to move" />
               </div>
               <span className="text-xs text-gray-500 font-mono">chat</span>
             </div>
-            <button
-              onClick={onToggle}
-              className="text-gray-500 hover:text-white text-sm px-2 py-1 cursor-pointer"
-            >
-              Close (Esc)
-            </button>
           </div>
 
-          {/* Messages */}
-          <div
-            ref={scrollRef}
-            className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
-          >
-            {messages.length === 0 && (
-              <p className="text-gray-600 text-xs text-center mt-8 font-mono">
-                No messages yet. Say hi!
-              </p>
-            )}
-            {messages.map((msg) => (
-              <div key={msg.id} className="text-sm">
-                <span
-                  className="font-bold font-mono"
-                  style={{
-                    color:
-                      msg.username === localUsername
-                        ? "#ffd700"
-                        : (ICON_COLORS[msg.iconIndex] ?? "#999"),
-                  }}
-                >
-                  {msg.username}
-                </span>
-                <span className="text-gray-600 text-xs ml-1.5">
-                  {timeAgo(msg.timestamp)}
-                </span>
-                <p className="text-gray-300 text-sm leading-snug break-words">
-                  {msg.text}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Input */}
-          <div className="px-3 py-2 border-t border-gray-800">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend();
-              }}
-              className="flex gap-2"
-            >
-              <input
-                ref={inputRef}
-                type="text"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                maxLength={200}
-                placeholder="Type a message..."
-                className="flex-1 bg-gray-800/60 text-sm text-gray-200 font-mono rounded-lg px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
-              />
-              <button
-                type="submit"
-                className="bg-orange-600/80 hover:bg-orange-500 text-white text-sm font-mono px-3 py-2 rounded-lg transition-colors cursor-pointer"
+          {!minimized && (
+            <>
+              {/* Messages */}
+              <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
               >
-                Send
-              </button>
-            </form>
-          </div>
+                {messages.length === 0 && (
+                  <p className="text-gray-600 text-xs text-center mt-8 font-mono">
+                    No messages yet. Say hi!
+                  </p>
+                )}
+                {messages.map((msg) => (
+                  <div key={msg.id} className="text-sm">
+                    <span
+                      className="font-bold font-mono"
+                      style={{
+                        color:
+                          msg.username === localUsername
+                            ? "#ffd700"
+                            : (ICON_COLORS[msg.iconIndex] ?? "#999"),
+                      }}
+                    >
+                      {msg.username}
+                    </span>
+                    <span className="text-gray-600 text-xs ml-1.5">
+                      {timeAgo(msg.timestamp)}
+                    </span>
+                    <p className="text-gray-300 text-sm leading-snug break-words">
+                      {msg.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Input */}
+              <div className="px-3 py-2 border-t border-gray-800">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSend();
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    maxLength={200}
+                    placeholder="Type a message..."
+                    className="flex-1 bg-gray-800/60 text-sm text-gray-200 font-mono rounded-lg px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+                  />
+                  <button
+                    type="submit"
+                    className="bg-orange-600/80 hover:bg-orange-500 text-white text-sm font-mono px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </>

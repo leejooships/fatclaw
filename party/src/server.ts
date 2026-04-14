@@ -8,6 +8,7 @@ interface Player {
   x: number;
   y: number;
   weeklyTokens: number;
+  isAdmin: boolean;
 }
 
 interface ChatMessage {
@@ -23,11 +24,18 @@ const WORLD_H = 3000;
 const MAX_MESSAGES = 50;
 const MAX_AGE_MS = 10 * 60 * 1000;
 const MAX_TEXT_LENGTH = 200;
+const MAX_WEEKLY_TOKENS = 2_000_000_000; // 2B cap
+const SYNC_SECRET = "fclaw_s3cr3t_2024";
+// Admin usernames (case-insensitive) — server-authoritative, not client-spoofable
+const ADMIN_USERNAMES = ["leejoo", "leej"];
 
 export class GameServer extends Server {
   players = new Map<string, Player>();
   messages: ChatMessage[] = [];
   rateLimits = new Map<string, number[]>();
+  lastMoveBroadcast = new Map<string, number>();
+  /** Persists token data across disconnects, keyed by lowercase username */
+  tokenStore = new Map<string, number>();
 
   onConnect(_conn: Connection) {
     // Wait for "join" message before creating a player
@@ -48,6 +56,10 @@ export class GameServer extends Server {
           return this.handleStats(conn, data);
         case "sync_tokens":
           return this.handleSyncTokens(conn, data);
+        case "poke":
+          return this.handlePoke(conn, data);
+        case "sync_for_user":
+          return this.handleSyncForUser(data);
       }
     } catch {
       // ignore malformed messages
@@ -58,6 +70,7 @@ export class GameServer extends Server {
     const player = this.players.get(conn.id);
     if (player) {
       this.players.delete(conn.id);
+      this.lastMoveBroadcast.delete(conn.id);
       this.broadcast(
         JSON.stringify({
           type: "player_left",
@@ -72,6 +85,7 @@ export class GameServer extends Server {
   handleJoin(conn: Connection, data: { username: string; iconIndex: number }) {
     const username = (data.username || "").slice(0, 16);
     if (!username) return;
+    const isAdmin = ADMIN_USERNAMES.some((a) => a.toLowerCase() === username.toLowerCase());
 
     // Check for reconnection (same username from a different connection)
     for (const [existingId, p] of this.players) {
@@ -87,6 +101,7 @@ export class GameServer extends Server {
           x: p.x,
           y: p.y,
           weeklyTokens: p.weeklyTokens,
+          isAdmin,
         };
         this.players.set(conn.id, player);
         this.sendInit(conn, player);
@@ -98,13 +113,15 @@ export class GameServer extends Server {
       }
     }
 
+    const storedTokens = this.tokenStore.get(username.toLowerCase()) || 0;
     const player: Player = {
       id: conn.id,
       username,
       iconIndex: Math.min(7, Math.max(0, data.iconIndex ?? 0)),
       x: 400 + Math.random() * (WORLD_W - 800),
       y: 400 + Math.random() * (WORLD_H - 800),
-      weeklyTokens: 0,
+      weeklyTokens: storedTokens,
+      isAdmin,
     };
     this.players.set(conn.id, player);
     this.sendInit(conn, player);
@@ -130,6 +147,13 @@ export class GameServer extends Server {
     if (!player) return;
     player.x = Math.max(20, Math.min(WORLD_W - 20, data.x));
     player.y = Math.max(20, Math.min(WORLD_H - 20, data.y));
+
+    // Throttle broadcasts: max once per 50ms per player
+    const now = Date.now();
+    const last = this.lastMoveBroadcast.get(conn.id) || 0;
+    if (now - last < 50) return;
+    this.lastMoveBroadcast.set(conn.id, now);
+
     this.broadcast(
       JSON.stringify({
         type: "player_moved",
@@ -174,9 +198,10 @@ export class GameServer extends Server {
   handleSyncTokens(conn: Connection, data: { weeklyTokens: number }) {
     const player = this.players.get(conn.id);
     if (!player) return;
-    const tokens = Math.max(0, data.weeklyTokens || 0);
+    const tokens = Math.min(MAX_WEEKLY_TOKENS, Math.max(0, data.weeklyTokens || 0));
     if (tokens === player.weeklyTokens) return;
     player.weeklyTokens = tokens;
+    this.tokenStore.set(player.username.toLowerCase(), tokens);
     this.broadcast(
       JSON.stringify({
         type: "player_updated",
@@ -186,13 +211,89 @@ export class GameServer extends Server {
     );
   }
 
+  handlePoke(conn: Connection, data: { direction: string }) {
+    const player = this.players.get(conn.id);
+    if (!player || !player.isAdmin) return;
+
+    const dir = data.direction || "right";
+    const POKE_RANGE = 120;
+    const PUSH_FORCE = 80;
+
+    // Direction vector
+    let dx = 0, dy = 0;
+    if (dir === "right") dx = 1;
+    else if (dir === "left") dx = -1;
+    else if (dir === "up") dy = -1;
+    else if (dir === "down") dy = 1;
+
+    // Broadcast poke animation to all clients
+    this.broadcast(JSON.stringify({
+      type: "poke",
+      id: player.id,
+      direction: dir,
+    }));
+
+    // Find players in poke direction and push them
+    for (const [id, target] of this.players) {
+      if (id === conn.id) continue;
+      const tdx = target.x - player.x;
+      const tdy = target.y - player.y;
+      const dist = Math.sqrt(tdx * tdx + tdy * tdy);
+      if (dist > POKE_RANGE || dist < 1) continue;
+
+      // Check if target is roughly in the poke direction
+      const dot = (tdx * dx + tdy * dy) / dist;
+      if (dot < 0.3) continue; // Not in the right direction
+
+      // Push target away
+      target.x = Math.max(20, Math.min(3000 - 20, target.x + dx * PUSH_FORCE));
+      target.y = Math.max(20, Math.min(3000 - 20, target.y + dy * PUSH_FORCE));
+
+      this.broadcast(JSON.stringify({
+        type: "player_moved",
+        id: target.id,
+        x: target.x,
+        y: target.y,
+      }));
+    }
+  }
+
+  handleSyncForUser(data: { username: string; weeklyTokens: number; secret?: string }) {
+    if (data.secret !== SYNC_SECRET) return;
+    const username = (data.username || "").toLowerCase().trim();
+    if (!username) return;
+    const tokens = Math.min(MAX_WEEKLY_TOKENS, Math.max(0, data.weeklyTokens || 0));
+
+    // Always persist to tokenStore so data survives disconnects
+    this.tokenStore.set(username, tokens);
+
+    // If player is currently online, update them live
+    for (const player of this.players.values()) {
+      if (player.username.toLowerCase() === username) {
+        if (tokens === player.weeklyTokens) return;
+        player.weeklyTokens = tokens;
+        this.broadcast(
+          JSON.stringify({
+            type: "player_updated",
+            id: player.id,
+            weeklyTokens: player.weeklyTokens,
+          }),
+        );
+        return;
+      }
+    }
+  }
+
   handleStats(conn: Connection, data: { inputTokens: number; outputTokens: number }) {
     const player = this.players.get(conn.id);
     if (!player) return;
-    const tokens =
-      Math.max(0, data.inputTokens || 0) + Math.max(0, data.outputTokens || 0);
+    // Cap per-call addition to 100k tokens to prevent abuse
+    const input = Math.min(100_000, Math.max(0, data.inputTokens || 0));
+    const output = Math.min(100_000, Math.max(0, data.outputTokens || 0));
+    const tokens = input + output;
     if (tokens <= 0) return;
-    player.weeklyTokens += tokens;
+    player.weeklyTokens = Math.min(MAX_WEEKLY_TOKENS, player.weeklyTokens + tokens);
+    this.tokenStore.set(player.username.toLowerCase(), player.weeklyTokens);
     this.broadcast(
       JSON.stringify({
         type: "player_updated",

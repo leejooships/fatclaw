@@ -6,12 +6,68 @@ import LoginScreen from "@/components/LoginScreen";
 import GameCanvas from "@/components/GameCanvas";
 import ChatPanel from "@/components/ChatPanel";
 import TokenStatsPanel from "@/components/TokenStatsPanel";
+import Leaderboard from "@/components/Leaderboard";
 import type { Player } from "@/lib/gameState";
 import type { ChatMessage } from "@/lib/chatState";
 
 interface SessionData {
   username: string;
   iconIndex: number;
+}
+
+const BLOCKED_WORDS = [
+  "fuck", "shit", "ass", "bitch", "dick", "pussy", "cock", "cunt",
+  "nigger", "nigga", "faggot", "fag", "retard", "whore", "slut",
+  "bastard", "damn", "piss", "nazi", "hitler", "rape", "kill",
+];
+
+function isCleanName(name: string): boolean {
+  const lower = name.toLowerCase().replace(/[^a-z]/g, "");
+  return !BLOCKED_WORDS.some((w) => lower.includes(w));
+}
+
+function NicknameModal({ firstName, onConfirm }: { firstName: string; onConfirm: (name: string) => void }) {
+  const [nickname, setNickname] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = () => {
+    const name = nickname.trim() || firstName;
+    if (!isCleanName(name)) {
+      setError("Please choose an appropriate name");
+      return;
+    }
+    onConfirm(name);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-sm w-full mx-4">
+        <h2 className="text-lg font-bold text-white mb-1">Pick a nickname</h2>
+        <p className="text-sm text-gray-400 mb-4">
+          Or keep your first name: <span className="text-orange-400">{firstName}</span>
+        </p>
+        <input
+          autoFocus
+          type="text"
+          value={nickname}
+          onChange={(e) => { setNickname(e.target.value.slice(0, 16)); setError(""); }}
+          placeholder={firstName}
+          maxLength={16}
+          className="w-full bg-gray-800 text-white text-sm font-mono rounded-lg px-3 py-2 mb-1 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSubmit();
+          }}
+        />
+        {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
+        <button
+          onClick={handleSubmit}
+          className="w-full bg-orange-600 hover:bg-orange-500 text-white font-mono text-sm py-2 rounded-lg transition-colors cursor-pointer mt-2"
+        >
+          {nickname.trim() ? `Join as ${nickname.trim()}` : `Join as ${firstName}`}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -22,7 +78,9 @@ export default function Home() {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pendingJoin, setPendingJoin] = useState<{ firstName: string; iconIndex: number } | null>(null);
   const wsRef = useRef<PartySocket | null>(null);
+  const pokeCallbackRef = useRef<((id: string, direction: string) => void) | null>(null);
 
   // Load session from localStorage
   useEffect(() => {
@@ -90,6 +148,9 @@ export default function Home() {
         case "chat":
           setChatMessages((prev) => [...prev, data.message].slice(-50));
           break;
+        case "poke":
+          pokeCallbackRef.current?.(data.id, data.direction);
+          break;
         case "player_updated":
           setLocalPlayer((prev) =>
             prev && prev.id === data.id
@@ -114,7 +175,7 @@ export default function Home() {
     };
   }, [session]);
 
-  // Google sign-in → get verified username, then connect to party
+  // Google sign-in → get first name, show nickname picker (only if no saved nickname)
   const handleJoin = useCallback(
     async (googleIdToken: string, iconIndex: number) => {
       try {
@@ -124,15 +185,35 @@ export default function Home() {
           body: JSON.stringify({ googleIdToken }),
         });
         if (!res.ok) return;
-        const { username } = await res.json();
-        const sessionData: SessionData = { username, iconIndex };
-        setSession(sessionData);
-        localStorage.setItem("fatclaw_session", JSON.stringify(sessionData));
+        const { firstName } = await res.json();
+
+        // Check if user already picked a nickname before
+        const savedNickname = localStorage.getItem("fatclaw_nickname");
+        if (savedNickname) {
+          const sessionData: SessionData = { username: savedNickname, iconIndex };
+          setSession(sessionData);
+          localStorage.setItem("fatclaw_session", JSON.stringify(sessionData));
+        } else {
+          setPendingJoin({ firstName, iconIndex });
+        }
       } catch (e) {
         console.error("Join failed:", e);
       }
     },
     [],
+  );
+
+  // Nickname confirmed → create session and save nickname permanently
+  const handleNicknameConfirm = useCallback(
+    (username: string) => {
+      if (!pendingJoin) return;
+      localStorage.setItem("fatclaw_nickname", username);
+      const sessionData: SessionData = { username, iconIndex: pendingJoin.iconIndex };
+      setSession(sessionData);
+      localStorage.setItem("fatclaw_session", JSON.stringify(sessionData));
+      setPendingJoin(null);
+    },
+    [pendingJoin],
   );
 
   // Movement via WebSocket
@@ -143,6 +224,11 @@ export default function Home() {
   // Chat via WebSocket
   const handleSendChat = useCallback((text: string) => {
     wsRef.current?.send(JSON.stringify({ type: "chat", text }));
+  }, []);
+
+  // Poke via WebSocket (admin only)
+  const handlePoke = useCallback((direction: string) => {
+    wsRef.current?.send(JSON.stringify({ type: "poke", direction }));
   }, []);
 
   // Logout
@@ -161,7 +247,17 @@ export default function Home() {
   }
 
   if (!session) {
-    return <LoginScreen onJoin={handleJoin} />;
+    return (
+      <>
+        <LoginScreen onJoin={handleJoin} />
+        {pendingJoin && (
+          <NicknameModal
+            firstName={pendingJoin.firstName}
+            onConfirm={handleNicknameConfirm}
+          />
+        )}
+      </>
+    );
   }
 
   if (!localPlayer) {
@@ -176,16 +272,20 @@ export default function Home() {
         chatMessages={chatMessages}
         chatOpen={chatPanelOpen}
         onMove={handleMove}
+        onPoke={handlePoke}
+        onPokeReceived={pokeCallbackRef}
       />
-      <div className="fixed top-4 left-4 z-50 flex gap-2">
-        {!statsPanelOpen && (
+      {!statsPanelOpen && (
+        <div className="fixed top-4 left-4 z-50">
           <button
             onClick={() => setStatsPanelOpen(true)}
             className="bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-orange-400 hover:bg-gray-800 transition-colors cursor-pointer"
           >
             📊 Token Stats
           </button>
-        )}
+        </div>
+      )}
+      <div className="fixed bottom-4 right-4 z-50">
         <button
           onClick={handleLogout}
           className="bg-gray-900/90 border border-gray-600 rounded-xl px-3 py-2 text-xs font-mono text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors cursor-pointer"
@@ -198,6 +298,7 @@ export default function Home() {
         onToggle={() => setStatsPanelOpen((o) => !o)}
         players={players}
       />
+      <Leaderboard players={players} />
       <ChatPanel
         messages={chatMessages}
         onSend={handleSendChat}

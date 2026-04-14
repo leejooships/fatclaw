@@ -124,24 +124,18 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
           Sign in with Google to enter the world.
         </p>
 
-        {/* CLI section */}
+        {/* Sync setup */}
         <div className="mt-8 pt-6 border-t border-gray-700">
-          <p className="text-sm text-gray-400 text-center mb-3">
-            Or join from your terminal
+          <p className="text-sm text-gray-400 text-center mb-1">
+            Sync your Claude Code usage
+          </p>
+          <p className="text-xs text-gray-600 text-center mb-3">
+            The more you use Claude, the bigger your character gets
           </p>
           <div className="bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
-            <p className="text-gray-500"># Install Bun (if you don&apos;t have it)</p>
-            <p>curl -fsSL https://bun.sh/install | bash</p>
-            <p className="text-gray-500 mt-2"># Clone and run</p>
-            <p>git clone https://github.com/leejooships/fatclaw.git</p>
-            <p>cd fatclaw/cli</p>
-            <p>bun install && bun start</p>
+            <p>git clone -b leejooships/remove-code-panel https://github.com/leejooships/fatclaw.git</p>
+            <p>cd fatclaw/cli && bun install && bun run sync</p>
           </div>
-          <p className="text-xs text-gray-600 text-center mt-2">
-            The CLI reads your Claude Code token usage and syncs it to the game.
-            <br />
-            The more you use Claude, the bigger your character gets!
-          </p>
         </div>
       </div>
     </div>

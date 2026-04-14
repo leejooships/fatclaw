@@ -20,5 +20,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ username: payload.name.slice(0, 16) });
+  const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase());
+  const isAdmin = adminEmails.includes(payload.email.toLowerCase());
+  return NextResponse.json({ firstName: payload.firstName.slice(0, 16), isAdmin });
 }

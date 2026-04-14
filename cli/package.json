@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "bun run src/index.ts",
+    "sync": "bun run src/sync.ts",
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {

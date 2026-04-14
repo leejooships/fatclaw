@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
-import { ICONS, drawClaudeIcon } from "@/lib/icons";
+import { useRef, useEffect, useCallback, useState } from "react";
+import { ICONS, drawClaudeIcon, drawMapleSlime } from "@/lib/icons";
 import { WORLD_W, WORLD_H } from "@/lib/gameState";
 import type { Player } from "@/lib/gameState";
 import type { ChatMessage } from "@/lib/chatState";
@@ -12,6 +12,13 @@ interface GameCanvasProps {
   chatMessages: ChatMessage[];
   chatOpen: boolean;
   onMove: (x: number, y: number) => void;
+  onPoke?: (direction: string) => void;
+  onPokeReceived?: React.RefObject<((id: string, direction: string) => void) | null>;
+}
+
+interface PokeAnim {
+  direction: string;
+  startTime: number;
 }
 
 // Tokens needed to reach max size
@@ -273,24 +280,101 @@ function drawChatBubble(
   }
 }
 
+const POKE_DURATION_MS = 400;
+
+function drawPokeHand(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  direction: string,
+  progress: number, // 0-1
+  size: number,
+) {
+  const s = size;
+  // Hand extends out then retracts
+  const extend = progress < 0.5
+    ? progress * 2        // 0→1 extend
+    : (1 - progress) * 2; // 1→0 retract
+  const reach = extend * 30 * s;
+
+  let dx = 0, dy = 0;
+  if (direction === "right") dx = 1;
+  else if (direction === "left") dx = -1;
+  else if (direction === "up") dy = -1;
+  else if (direction === "down") dy = 1;
+
+  const handX = x + dx * (20 * s + reach);
+  const handY = y + dy * (20 * s + reach);
+
+  ctx.save();
+  // Arm
+  ctx.strokeStyle = "#f5d0a9";
+  ctx.lineWidth = 5 * s;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x + dx * 15 * s, y + dy * 15 * s);
+  ctx.lineTo(handX, handY);
+  ctx.stroke();
+
+  // Hand (fist)
+  ctx.fillStyle = "#f5d0a9";
+  ctx.beginPath();
+  ctx.arc(handX, handY, 5 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Finger (pointing)
+  ctx.strokeStyle = "#f5d0a9";
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(handX, handY);
+  ctx.lineTo(handX + dx * 7 * s, handY + dy * 7 * s);
+  ctx.stroke();
+  // Fingertip
+  ctx.fillStyle = "#f0c0a0";
+  ctx.beginPath();
+  ctx.arc(handX + dx * 7 * s, handY + dy * 7 * s, 2 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   player: Player,
   isLocal: boolean,
   chatText: string | null,
+  isMoving: boolean,
+  time: number,
+  pokeAnim: PokeAnim | null,
 ) {
   const size = getPlayerSize(player.weeklyTokens);
   const icon = ICONS[player.iconIndex] || ICONS[0];
+  // Bounce phase: 3 hops per second
+  const bounceT = isMoving ? (time * 3) % 1 : 0;
 
-  drawClaudeIcon(ctx, icon, player.x, player.y, size);
+  // Draw poke hand behind or in front depending on direction
+  if (pokeAnim) {
+    const elapsed = Date.now() - pokeAnim.startTime;
+    const progress = Math.min(elapsed / POKE_DURATION_MS, 1);
+    if (progress < 1) {
+      drawPokeHand(ctx, player.x, player.y, pokeAnim.direction, progress, size);
+    }
+  }
 
-  // Username label
-  ctx.font = `bold ${11 + size}px sans-serif`;
+  if (player.isAdmin) {
+    drawMapleSlime(ctx, player.x, player.y, size, bounceT, isMoving);
+  } else {
+    drawClaudeIcon(ctx, icon, player.x, player.y, size, bounceT, isMoving);
+  }
+
+  // Username label (offset up to account for slime height)
+  const isAdmin = !!player.isAdmin;
+  ctx.font = `bold ${(isAdmin ? 13 : 11) + size}px sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillStyle = isLocal ? "#ffd700" : "white";
+  ctx.fillStyle = isAdmin ? "#ffd700" : isLocal ? "#ffd700" : "white";
   ctx.strokeStyle = "rgba(0,0,0,0.7)";
   ctx.lineWidth = 3;
-  const labelY = player.y - 30 * size;
+  const labelY = player.y - 32 * size;
   ctx.strokeText(player.username, player.x, labelY);
   ctx.fillText(player.username, player.x, labelY);
 
@@ -310,7 +394,7 @@ function drawPlayer(
 
   // Chat bubble
   if (chatText) {
-    const bubbleBottom = player.weeklyTokens > 0 ? labelY - 4 * size : labelY - 4 * size;
+    const bubbleBottom = labelY - 4 * size;
     drawChatBubble(ctx, chatText, player.x, bubbleBottom, size);
   }
 
@@ -362,15 +446,30 @@ function drawMinimap(
   }
 }
 
-export default function GameCanvas({ localPlayer, players, chatMessages, chatOpen, onMove }: GameCanvasProps) {
+export default function GameCanvas({ localPlayer, players, chatMessages, chatOpen, onMove, onPoke, onPokeReceived }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const posRef = useRef({ x: localPlayer.x, y: localPlayer.y });
   const animFrameRef = useRef<number>(0);
+  const prevPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const pokeAnimsRef = useRef<Map<string, PokeAnim>>(new Map());
+  const facingRef = useRef("right");
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
   const chatOpenRef = useRef(chatOpen);
   chatOpenRef.current = chatOpen;
+
+  // Register for incoming poke events from server
+  useEffect(() => {
+    if (onPokeReceived) {
+      onPokeReceived.current = (id: string, direction: string) => {
+        pokeAnimsRef.current.set(id, { direction, startTime: Date.now() });
+      };
+    }
+    return () => {
+      if (onPokeReceived) onPokeReceived.current = null;
+    };
+  }, [onPokeReceived]);
 
   // Clear movement keys when chat opens
   useEffect(() => {
@@ -389,13 +488,25 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
   // Keyboard handlers
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Don't capture movement keys when typing in inputs
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
 
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(e.key)) {
         e.preventDefault();
         keysRef.current.add(e.key.toLowerCase());
+        // Track facing direction
+        const k = e.key.toLowerCase();
+        if (k === "a" || k === "arrowleft") facingRef.current = "left";
+        else if (k === "d" || k === "arrowright") facingRef.current = "right";
+        else if (k === "w" || k === "arrowup") facingRef.current = "up";
+        else if (k === "s" || k === "arrowdown") facingRef.current = "down";
+      }
+
+      // P to poke (admin only)
+      if (e.key.toLowerCase() === "p" && localPlayer.isAdmin && onPoke) {
+        e.preventDefault();
+        onPoke(facingRef.current);
+        pokeAnimsRef.current.set(localPlayer.id, { direction: facingRef.current, startTime: Date.now() });
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -407,7 +518,7 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, []);
+  }, [localPlayer.isAdmin, localPlayer.id, onPoke]);
 
   // Movement speed (bigger = slower)
   const getSpeed = useCallback(() => {
@@ -495,6 +606,7 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
 
       // Build map of latest chat message per player (within bubble duration)
       const now = Date.now();
+      const time = now / 1000; // seconds for animation
       const latestChat = new Map<string, string>();
       for (const msg of chatMessagesRef.current) {
         if (now - msg.timestamp < BUBBLE_DURATION_MS) {
@@ -502,9 +614,26 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
         }
       }
 
+      // Detect which players are moving
+      const prevPos = prevPosRef.current;
+      const movingSet = new Set<string>();
+      for (const p of allPlayers) {
+        const prev = prevPos.get(p.id);
+        if (prev && (Math.abs(p.x - prev.x) > 0.5 || Math.abs(p.y - prev.y) > 0.5)) {
+          movingSet.add(p.id);
+        }
+        prevPos.set(p.id, { x: p.x, y: p.y });
+      }
+
+      // Clean up expired poke animations
+      const pokeAnims = pokeAnimsRef.current;
+      for (const [id, anim] of pokeAnims) {
+        if (Date.now() - anim.startTime > POKE_DURATION_MS) pokeAnims.delete(id);
+      }
+
       for (const p of allPlayers) {
         if (p.x > camX - 100 && p.x < camX + vw + 100 && p.y > camY - 100 && p.y < camY + vh + 100) {
-          drawPlayer(ctx, p, p.id === localPlayer.id, latestChat.get(p.username) ?? null);
+          drawPlayer(ctx, p, p.id === localPlayer.id, latestChat.get(p.username) ?? null, movingSet.has(p.id), time, pokeAnims.get(p.id) ?? null);
         }
       }
 
@@ -513,24 +642,28 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
       // UI overlay (minimap)
       drawMinimap(ctx, players, localPlayer.id, vw, vh);
 
-      // Player count
+      // Player count (top center)
+      ctx.textAlign = "center";
+      const countText = `${players.length} player${players.length !== 1 ? "s" : ""} online`;
+      ctx.font = "bold 13px sans-serif";
+      const numWidth = ctx.measureText(`${players.length}`).width;
+      ctx.font = "13px sans-serif";
+      const restWidth = ctx.measureText(` player${players.length !== 1 ? "s" : ""} online`).width;
+      const totalWidth = numWidth + restWidth;
+      const countPad = 24;
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.beginPath();
-      ctx.roundRect(12, 12, 130, 32, 8);
+      ctx.roundRect(vw / 2 - (totalWidth + countPad) / 2, 12, totalWidth + countPad, 32, 8);
       ctx.fill();
+      // Draw number bold, rest normal
+      ctx.textAlign = "left";
+      const countStartX = vw / 2 - totalWidth / 2;
+      ctx.fillStyle = "white";
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillText(`${players.length}`, countStartX, 33);
       ctx.fillStyle = "#a0a0a0";
       ctx.font = "13px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(`${players.length} player${players.length !== 1 ? "s" : ""} online`, 24, 33);
-
-      // Controls hint
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.beginPath();
-      ctx.roundRect(12, vh - 44, 200, 32, 8);
-      ctx.fill();
-      ctx.fillStyle = "#888";
-      ctx.font = "11px sans-serif";
-      ctx.fillText("WASD to move  |  Enter to chat", 24, vh - 24);
+      ctx.fillText(` player${players.length !== 1 ? "s" : ""} online`, countStartX + numWidth, 33);
 
       animFrameRef.current = requestAnimationFrame(loop);
     };
@@ -539,11 +672,24 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [players, localPlayer, onMove, getSpeed]);
 
+  const [showHint, setShowHint] = useState(true);
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 w-full h-full"
-      style={{ cursor: "crosshair" }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 w-full h-full"
+        style={{ cursor: "crosshair" }}
+      />
+      {showHint && (
+        <button
+          onClick={() => setShowHint(false)}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900/90 border border-gray-600 rounded-xl px-5 py-3 text-sm font-mono text-gray-300 hover:bg-gray-800 transition-colors cursor-pointer flex items-center gap-3"
+        >
+          <span className="text-white font-bold">WASD</span> to move
+          <span className="text-gray-500 text-xs ml-1">dismiss</span>
+        </button>
+      )}
+    </>
   );
 }
