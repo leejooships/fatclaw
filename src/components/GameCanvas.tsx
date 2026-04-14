@@ -14,8 +14,16 @@ interface GameCanvasProps {
   onMove: (x: number, y: number) => void;
 }
 
-const PLAYER_SIZE = 1;
+// Tokens needed to reach max size
+const MAX_TOKENS_FOR_SIZE = 500_000;
+const MIN_SIZE = 1;
+const MAX_SIZE = 4;
 const TILE_SIZE = 64;
+
+function getPlayerSize(weeklyTokens: number): number {
+  const t = Math.min(weeklyTokens, MAX_TOKENS_FOR_SIZE) / MAX_TOKENS_FOR_SIZE;
+  return MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
+}
 
 // Deterministic random for world generation
 function seededRandom(seed: number) {
@@ -271,7 +279,7 @@ function drawPlayer(
   isLocal: boolean,
   chatText: string | null,
 ) {
-  const size = PLAYER_SIZE;
+  const size = getPlayerSize(player.weeklyTokens);
   const icon = ICONS[player.iconIndex] || ICONS[0];
 
   drawClaudeIcon(ctx, icon, player.x, player.y, size);
@@ -286,9 +294,24 @@ function drawPlayer(
   ctx.strokeText(player.username, player.x, labelY);
   ctx.fillText(player.username, player.x, labelY);
 
+  // Token count badge
+  if (player.weeklyTokens > 0) {
+    const k = player.weeklyTokens >= 1000
+      ? `${(player.weeklyTokens / 1000).toFixed(player.weeklyTokens >= 10000 ? 0 : 1)}k`
+      : `${player.weeklyTokens}`;
+    const badge = `${k} tokens`;
+    ctx.font = `${9 + size * 0.5}px sans-serif`;
+    ctx.fillStyle = "#a0a0a0";
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 2;
+    ctx.strokeText(badge, player.x, labelY + 14);
+    ctx.fillText(badge, player.x, labelY + 14);
+  }
+
   // Chat bubble
   if (chatText) {
-    drawChatBubble(ctx, chatText, player.x, labelY - 4 * size, size);
+    const bubbleBottom = player.weeklyTokens > 0 ? labelY - 4 * size : labelY - 4 * size;
+    drawChatBubble(ctx, chatText, player.x, bubbleBottom, size);
   }
 
   // Local player indicator
@@ -331,7 +354,7 @@ function drawMinimap(
     const px = mmX + p.x * scaleX;
     const py = mmY + p.y * scaleY;
     const icon = ICONS[p.iconIndex] || ICONS[0];
-    const dotSize = 2 + PLAYER_SIZE * 0.8;
+    const dotSize = 2 + getPlayerSize(p.weeklyTokens) * 0.8;
     ctx.fillStyle = p.id === localId ? "#ffd700" : icon.bodyColor;
     ctx.beginPath();
     ctx.arc(px, py, dotSize, 0, Math.PI * 2);
@@ -385,10 +408,11 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     };
   }, []);
 
-  // Movement speed
+  // Movement speed (bigger = slower)
   const getSpeed = useCallback(() => {
-    return Math.max(1.5, 5 - PLAYER_SIZE * 0.8);
-  }, []);
+    const size = getPlayerSize(localPlayer.weeklyTokens);
+    return Math.max(1.5, 5 - size * 0.8);
+  }, [localPlayer.weeklyTokens]);
 
   // Resize canvas
   useEffect(() => {

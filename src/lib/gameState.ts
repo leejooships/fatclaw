@@ -5,6 +5,7 @@ export interface Player {
   x: number;
   y: number;
   googleId?: string;
+  weeklyTokens: number;
   lastActive: number; // timestamp
   todayDate: string; // YYYY-MM-DD for daily reset
 }
@@ -53,6 +54,7 @@ export function joinGame(username: string, iconIndex: number, googleId?: string)
     x: 400 + Math.random() * (WORLD_W - 800),
     y: 400 + Math.random() * (WORLD_H - 800),
     googleId,
+    weeklyTokens: 0,
     lastActive: Date.now(),
     todayDate: getToday(),
   };
@@ -88,4 +90,10 @@ export function getPlayer(id: string): Player | undefined {
   const p = players.get(id);
   if (p) checkDailyReset(p);
   return p;
+}
+
+export function syncWeeklyTokens(stats: Record<string, number>) {
+  for (const p of players.values()) {
+    p.weeklyTokens = stats[p.username.toLowerCase()] ?? 0;
+  }
 }
