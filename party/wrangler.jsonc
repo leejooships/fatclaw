@@ -1,0 +1,13 @@
+{
+  "name": "fatclaw-party",
+  "main": "src/server.ts",
+  "compatibility_date": "2024-12-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "GameServer", "class_name": "GameServer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GameServer"] }
+  ]
+}

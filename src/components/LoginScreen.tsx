@@ -136,7 +136,9 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
             <p>bun install && bun start</p>
           </div>
           <p className="text-xs text-gray-600 text-center mt-2">
-            Chat, move around, and ask Claude — all from the command line.
+            The CLI reads your Claude Code token usage and syncs it to the game.
+            <br />
+            The more you use Claude, the bigger your character gets!
           </p>
         </div>
       </div>

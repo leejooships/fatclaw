@@ -379,18 +379,19 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     }
   }, [chatOpen]);
 
-  // Sync position from server
+  // Sync position from server only when not actively moving
   useEffect(() => {
-    posRef.current = { x: localPlayer.x, y: localPlayer.y };
+    if (keysRef.current.size === 0) {
+      posRef.current = { x: localPlayer.x, y: localPlayer.y };
+    }
   }, [localPlayer.x, localPlayer.y]);
 
   // Keyboard handlers
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Don't capture movement keys when typing in inputs or chat is open
+      // Don't capture movement keys when typing in inputs
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (chatOpenRef.current) return;
 
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(e.key)) {
         e.preventDefault();

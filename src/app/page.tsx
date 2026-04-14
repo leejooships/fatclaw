@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import PartySocket from "partysocket";
 import LoginScreen from "@/components/LoginScreen";
 import GameCanvas from "@/components/GameCanvas";
 import ChatPanel from "@/components/ChatPanel";
@@ -9,7 +10,6 @@ import type { Player } from "@/lib/gameState";
 import type { ChatMessage } from "@/lib/chatState";
 
 interface SessionData {
-  id: string;
   username: string;
   iconIndex: number;
 }
@@ -22,138 +22,150 @@ export default function Home() {
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const wsRef = useRef<PartySocket | null>(null);
 
   // Load session from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("fatclaw_session");
     if (saved) {
       try {
-        const data = JSON.parse(saved) as SessionData;
-        // Rejoin by username (for reconnection after timeout)
-        rejoinByUsername(data.username, data.iconIndex).finally(() => setLoading(false));
-        return;
+        setSession(JSON.parse(saved) as SessionData);
       } catch {
         localStorage.removeItem("fatclaw_session");
       }
     }
     setLoading(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Rejoin by username (for session restore / reconnection)
-  const rejoinByUsername = useCallback(async (username: string, iconIndex: number) => {
-    try {
-      const res = await fetch("/api/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, iconIndex }),
-      });
-      if (!res.ok) return;
-      const player: Player = await res.json();
-      setLocalPlayer(player);
-      setSession({ id: player.id, username: player.username, iconIndex: player.iconIndex });
-      localStorage.setItem("fatclaw_session", JSON.stringify({
-        id: player.id,
-        username: player.username,
-        iconIndex: player.iconIndex,
-      }));
-    } catch (e) {
-      console.error("Rejoin failed:", e);
-    }
   }, []);
 
-  // Join game via Google sign-in
-  const handleJoin = useCallback(async (googleIdToken: string, iconIndex: number) => {
-    try {
-      const res = await fetch("/api/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ googleIdToken, iconIndex }),
-      });
-      if (!res.ok) return;
-      const player: Player = await res.json();
-      setLocalPlayer(player);
-      setSession({ id: player.id, username: player.username, iconIndex: player.iconIndex });
-      localStorage.setItem("fatclaw_session", JSON.stringify({
-        id: player.id,
-        username: player.username,
-        iconIndex: player.iconIndex,
-      }));
-    } catch (e) {
-      console.error("Join failed:", e);
-    }
-  }, []);
-
-  // Poll players
+  // Connect to party server when session exists
   useEffect(() => {
     if (!session) return;
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/players");
-        if (res.ok) {
-          const data: { players: Player[]; messages: ChatMessage[] } = await res.json();
+
+    const host = process.env.NEXT_PUBLIC_PARTY_HOST;
+    if (!host) {
+      console.error("NEXT_PUBLIC_PARTY_HOST not configured");
+      return;
+    }
+
+    const ws = new PartySocket({
+      host,
+      party: "gameserver",
+      room: "main",
+    });
+
+    ws.addEventListener("open", () => {
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          username: session.username,
+          iconIndex: session.iconIndex,
+        }),
+      );
+    });
+
+    ws.addEventListener("message", (e) => {
+      const data = JSON.parse(e.data);
+      switch (data.type) {
+        case "init":
+          setLocalPlayer(data.player);
           setPlayers(data.players);
           setChatMessages(data.messages);
-          // Update local player from server
-          const me = data.players.find((p) => p.id === session.id);
-          if (me) setLocalPlayer(me);
-          else {
-            // We got disconnected (5min timeout), rejoin
-            rejoinByUsername(session.username, session.iconIndex);
-          }
-        }
-      } catch {
-        // ignore
+          break;
+        case "player_joined":
+          setPlayers((prev) => [
+            ...prev.filter((p) => p.id !== data.player.id),
+            data.player,
+          ]);
+          break;
+        case "player_left":
+          setPlayers((prev) => prev.filter((p) => p.id !== data.id));
+          break;
+        case "player_moved":
+          setPlayers((prev) =>
+            prev.map((p) =>
+              p.id === data.id ? { ...p, x: data.x, y: data.y } : p,
+            ),
+          );
+          break;
+        case "chat":
+          setChatMessages((prev) => [...prev, data.message].slice(-50));
+          break;
+        case "player_updated":
+          setLocalPlayer((prev) =>
+            prev && prev.id === data.id
+              ? { ...prev, weeklyTokens: data.weeklyTokens }
+              : prev,
+          );
+          setPlayers((prev) =>
+            prev.map((p) =>
+              p.id === data.id
+                ? { ...p, weeklyTokens: data.weeklyTokens }
+                : p,
+            ),
+          );
+          break;
       }
-    };
-    poll();
-    const interval = setInterval(poll, 800);
-    return () => clearInterval(interval);
-  }, [session, rejoinByUsername]);
+    });
 
-  // Send chat message
-  const handleSendChat = useCallback(async (text: string) => {
-    if (!session) return;
-    try {
-      await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: session.id, text }),
-      });
-    } catch {
-      // ignore
-    }
+    wsRef.current = ws;
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
   }, [session]);
+
+  // Google sign-in → get verified username, then connect to party
+  const handleJoin = useCallback(
+    async (googleIdToken: string, iconIndex: number) => {
+      try {
+        const res = await fetch("/api/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ googleIdToken }),
+        });
+        if (!res.ok) return;
+        const { username } = await res.json();
+        const sessionData: SessionData = { username, iconIndex };
+        setSession(sessionData);
+        localStorage.setItem("fatclaw_session", JSON.stringify(sessionData));
+      } catch (e) {
+        console.error("Join failed:", e);
+      }
+    },
+    [],
+  );
+
+  // Movement via WebSocket
+  const handleMove = useCallback((x: number, y: number) => {
+    wsRef.current?.send(JSON.stringify({ type: "move", x, y }));
+  }, []);
+
+  // Chat via WebSocket
+  const handleSendChat = useCallback((text: string) => {
+    wsRef.current?.send(JSON.stringify({ type: "chat", text }));
+  }, []);
 
   // Logout
   const handleLogout = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
     localStorage.removeItem("fatclaw_session");
     setSession(null);
     setLocalPlayer(null);
+    setPlayers([]);
+    setChatMessages([]);
   }, []);
 
-  // Handle movement
-  const handleMove = useCallback(async (x: number, y: number) => {
-    if (!session) return;
-    try {
-      await fetch("/api/move", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: session.id, x, y }),
-      });
-    } catch {
-      // ignore
-    }
-  }, [session]);
-
-
-  // Loading session
   if (loading) {
     return <div className="min-h-screen" />;
   }
 
-  // Not logged in yet
-  if (!session || !localPlayer) {
+  if (!session) {
     return <LoginScreen onJoin={handleJoin} />;
+  }
+
+  if (!localPlayer) {
+    return <div className="min-h-screen" />;
   }
 
   return (
@@ -184,6 +196,7 @@ export default function Home() {
       <TokenStatsPanel
         isOpen={statsPanelOpen}
         onToggle={() => setStatsPanelOpen((o) => !o)}
+        players={players}
       />
       <ChatPanel
         messages={chatMessages}
