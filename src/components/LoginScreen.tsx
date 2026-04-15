@@ -39,6 +39,7 @@ function IconPreview({ index, selected, onClick }: { index: number; selected: bo
 export default function LoginScreen({ onJoin }: LoginScreenProps) {
   const [selectedIcon, setSelectedIcon] = useState(0);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const selectedIconRef = useRef(selectedIcon);
   const onJoinRef = useRef(onJoin);
@@ -132,9 +133,19 @@ export default function LoginScreen({ onJoin }: LoginScreenProps) {
           <p className="text-xs text-gray-600 text-center mb-3">
             The more you use Claude, the bigger your character gets
           </p>
-          <div className="bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
+          <div className="relative bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
             <p>git clone https://github.com/leejooships/fatclaw.git</p>
             <p>cd fatclaw/cli && bun install && bun run sync</p>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText("git clone https://github.com/leejooships/fatclaw.git\ncd fatclaw/cli && bun install && bun run sync");
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer"
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
           </div>
         </div>
       </div>

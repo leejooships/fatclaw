@@ -240,6 +240,9 @@ export function drawClaudeIcon(
   const topY = -slimeH * 0.7;
   drawAccessory(ctx, icon, 0, topY, slimeW * 0.5, s);
 
+  // Bubble tea (always visible, hides when moving via bounce)
+  drawBubbleTea(ctx, slimeW * 1.3, slimeH * 0.0, s, icon.accentColor);
+
   ctx.restore();
 }
 
@@ -497,6 +500,108 @@ export function drawMapleSlime(
   // Star on forehead (Maplestory signature)
   ctx.fillStyle = "#ffd700";
   drawStar(ctx, 0, -slimeH * 0.42, 3 * s, 6 * s, 5);
+
+  // Bubble tea when idle
+  if (!isMoving) {
+    drawBubbleTea(ctx, slimeW * 1.3, slimeH * 0.0, s, "#1a8a3a");
+  }
+
+  ctx.restore();
+}
+
+/** Draw a cute bubble tea cup with straw and tapioca pearls */
+function drawBubbleTea(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+  strawColor: string,
+) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const cupW = 10 * s;
+  const cupH = 20 * s;
+  const topY = -cupH * 0.5;
+  const botY = cupH * 0.5;
+
+  // Cup body (tapered — wider at top, narrower at bottom)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(-cupW * 0.5, topY);
+  ctx.lineTo(-cupW * 0.35, botY);
+  ctx.quadraticCurveTo(0, botY + 3 * s, cupW * 0.35, botY);
+  ctx.lineTo(cupW * 0.5, topY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Tea liquid (milky brown)
+  ctx.fillStyle = "rgba(180, 130, 80, 0.8)";
+  ctx.beginPath();
+  ctx.moveTo(-cupW * 0.47, topY + cupH * 0.15);
+  ctx.lineTo(-cupW * 0.35, botY);
+  ctx.quadraticCurveTo(0, botY + 3 * s, cupW * 0.35, botY);
+  ctx.lineTo(cupW * 0.47, topY + cupH * 0.15);
+  ctx.closePath();
+  ctx.fill();
+
+  // Tapioca pearls at the bottom
+  ctx.fillStyle = "#1a0e08";
+  const pearlR = 2 * s;
+  const pearlBaseY = botY - 3 * s;
+  const pearls = [
+    [-2.5, 0], [1, 0.5], [3.5, -0.3],
+    [-1, 2.5], [2, 2.2], [-3, 2.8],
+    [0, 4.5], [2.8, 4],
+  ];
+  for (const [px, py] of pearls) {
+    ctx.beginPath();
+    ctx.arc(px * s, pearlBaseY - py * s, pearlR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Pearl shine
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  for (const [px, py] of pearls) {
+    ctx.beginPath();
+    ctx.arc(px * s - 0.5 * s, pearlBaseY - py * s - 0.5 * s, pearlR * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Dome lid
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.ellipse(0, topY, cupW * 0.5, cupH * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Dome curve on top
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.beginPath();
+  ctx.arc(0, topY, cupW * 0.5, Math.PI, 0);
+  ctx.fill();
+  ctx.stroke();
+
+  // Straw (thick, angled, colored to match slime)
+  ctx.strokeStyle = strawColor;
+  ctx.lineWidth = 2.5 * s;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(2 * s, topY - cupH * 0.4);
+  ctx.lineTo(-1 * s, botY - 5 * s);
+  ctx.stroke();
+
+  // Straw highlight
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.moveTo(2.5 * s, topY - cupH * 0.35);
+  ctx.lineTo(-0.5 * s, botY - 6 * s);
+  ctx.stroke();
 
   ctx.restore();
 }
