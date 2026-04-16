@@ -14,6 +14,8 @@ interface GameCanvasProps {
   onMove: (x: number, y: number) => void;
   onPoke?: (direction: string) => void;
   onPokeReceived?: React.RefObject<((id: string, direction: string) => void) | null>;
+  onWarcry?: () => void;
+  onWarcryReceived?: React.RefObject<((id: string) => void) | null>;
 }
 
 interface PokeAnim {
@@ -291,11 +293,14 @@ function drawPokeHand(
   size: number,
 ) {
   const s = size;
+  // Slime body is ~24*s wide, so scale arm proportionally
+  const bodyRadius = 24 * s;
+
   // Hand extends out then retracts
   const extend = progress < 0.5
     ? progress * 2        // 0→1 extend
     : (1 - progress) * 2; // 1→0 retract
-  const reach = extend * 30 * s;
+  const reach = extend * bodyRadius * 1.2;
 
   let dx = 0, dy = 0;
   if (direction === "right") dx = 1;
@@ -303,36 +308,42 @@ function drawPokeHand(
   else if (direction === "up") dy = -1;
   else if (direction === "down") dy = 1;
 
-  const handX = x + dx * (20 * s + reach);
-  const handY = y + dy * (20 * s + reach);
+  // Arm starts at body edge, extends outward
+  const armStartX = x + dx * bodyRadius * 0.6;
+  const armStartY = y + dy * bodyRadius * 0.6;
+  const handX = x + dx * (bodyRadius * 0.85 + reach);
+  const handY = y + dy * (bodyRadius * 0.85 + reach);
 
   ctx.save();
-  // Arm
+  // Arm — thickness scales with slime size
   ctx.strokeStyle = "#f5d0a9";
-  ctx.lineWidth = 5 * s;
+  ctx.lineWidth = 4 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(x + dx * 15 * s, y + dy * 15 * s);
+  ctx.moveTo(armStartX, armStartY);
   ctx.lineTo(handX, handY);
   ctx.stroke();
 
-  // Hand (fist)
+  // Hand (fist) — proportional to body
+  const fistR = 4.5 * s;
   ctx.fillStyle = "#f5d0a9";
   ctx.beginPath();
-  ctx.arc(handX, handY, 5 * s, 0, Math.PI * 2);
+  ctx.arc(handX, handY, fistR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Finger (pointing)
+  // Finger (pointing) — proportional
+  const fingerLen = 6 * s;
+  const fingerW = 2.5 * s;
   ctx.strokeStyle = "#f5d0a9";
-  ctx.lineWidth = 3 * s;
+  ctx.lineWidth = fingerW;
   ctx.beginPath();
   ctx.moveTo(handX, handY);
-  ctx.lineTo(handX + dx * 7 * s, handY + dy * 7 * s);
+  ctx.lineTo(handX + dx * fingerLen, handY + dy * fingerLen);
   ctx.stroke();
   // Fingertip
   ctx.fillStyle = "#f0c0a0";
   ctx.beginPath();
-  ctx.arc(handX + dx * 7 * s, handY + dy * 7 * s, 2 * s, 0, Math.PI * 2);
+  ctx.arc(handX + dx * fingerLen, handY + dy * fingerLen, fingerW * 0.7, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -362,9 +373,9 @@ function drawPlayer(
   }
 
   if (player.isAdmin) {
-    drawMapleSlime(ctx, player.x, player.y, size, bounceT, isMoving);
+    drawMapleSlime(ctx, player.x, player.y, size, bounceT, isMoving, time);
   } else {
-    drawClaudeIcon(ctx, icon, player.x, player.y, size, bounceT, isMoving);
+    drawClaudeIcon(ctx, icon, player.x, player.y, size, bounceT, isMoving, time);
   }
 
   // Username label (offset up to account for slime height)
@@ -446,13 +457,14 @@ function drawMinimap(
   }
 }
 
-export default function GameCanvas({ localPlayer, players, chatMessages, chatOpen, onMove, onPoke, onPokeReceived }: GameCanvasProps) {
+export default function GameCanvas({ localPlayer, players, chatMessages, chatOpen, onMove, onPoke, onPokeReceived, onWarcry, onWarcryReceived }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const posRef = useRef({ x: localPlayer.x, y: localPlayer.y });
   const animFrameRef = useRef<number>(0);
   const prevPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const pokeAnimsRef = useRef<Map<string, PokeAnim>>(new Map());
+  const warcryAnimsRef = useRef<Map<string, number>>(new Map());
   const facingRef = useRef("right");
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
@@ -471,6 +483,18 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     };
   }, [onPokeReceived]);
 
+  // Register for incoming warcry events from server
+  useEffect(() => {
+    if (onWarcryReceived) {
+      onWarcryReceived.current = (id: string) => {
+        warcryAnimsRef.current.set(id, Date.now());
+      };
+    }
+    return () => {
+      if (onWarcryReceived) onWarcryReceived.current = null;
+    };
+  }, [onWarcryReceived]);
+
   // Clear movement keys when chat opens
   useEffect(() => {
     if (chatOpen) {
@@ -478,9 +502,11 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
     }
   }, [chatOpen]);
 
-  // Sync position from server only when not actively moving
+  // Sync position from server — always sync if pushed (large jump), otherwise only when idle
   useEffect(() => {
-    if (keysRef.current.size === 0) {
+    const dx = Math.abs(posRef.current.x - localPlayer.x);
+    const dy = Math.abs(posRef.current.y - localPlayer.y);
+    if (keysRef.current.size === 0 || dx > 20 || dy > 20) {
       posRef.current = { x: localPlayer.x, y: localPlayer.y };
     }
   }, [localPlayer.x, localPlayer.y]);
@@ -502,11 +528,24 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
         else if (k === "s" || k === "arrowdown") facingRef.current = "down";
       }
 
-      // P to poke (admin only)
-      if (e.key.toLowerCase() === "p" && localPlayer.isAdmin && onPoke) {
+      // P to poke
+      if (e.key.toLowerCase() === "p" && onPoke) {
         e.preventDefault();
         onPoke(facingRef.current);
         pokeAnimsRef.current.set(localPlayer.id, { direction: facingRef.current, startTime: Date.now() });
+      }
+
+      // O for warcry (#1 player only)
+      if (e.key.toLowerCase() === "o" && onWarcry) {
+        // Check if local player is #1 on leaderboard
+        const topPlayer = [...players, localPlayer].reduce((top, p) =>
+          p.weeklyTokens > top.weeklyTokens ? p : top
+        );
+        if (topPlayer.id === localPlayer.id && localPlayer.weeklyTokens > 0) {
+          e.preventDefault();
+          onWarcry();
+          warcryAnimsRef.current.set(localPlayer.id, Date.now());
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -518,7 +557,7 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [localPlayer.isAdmin, localPlayer.id, onPoke]);
+  }, [localPlayer.id, onPoke, onWarcry]);
 
   // Movement speed (bigger = slower)
   const getSpeed = useCallback(() => {
@@ -631,10 +670,66 @@ export default function GameCanvas({ localPlayer, players, chatMessages, chatOpe
         if (Date.now() - anim.startTime > POKE_DURATION_MS) pokeAnims.delete(id);
       }
 
+      // Clean up expired warcry animations
+      const WARCRY_DURATION_MS = 800;
+      const warcryAnims = warcryAnimsRef.current;
+      for (const [id, startTime] of warcryAnims) {
+        if (Date.now() - startTime > WARCRY_DURATION_MS) warcryAnims.delete(id);
+      }
+
       for (const p of allPlayers) {
         if (p.x > camX - 100 && p.x < camX + vw + 100 && p.y > camY - 100 && p.y < camY + vh + 100) {
           drawPlayer(ctx, p, p.id === localPlayer.id, latestChat.get(p.username) ?? null, movingSet.has(p.id), time, pokeAnims.get(p.id) ?? null);
         }
+      }
+
+      // Warcry visuals — rendered separately with large visibility range
+      for (const [id, startTime] of warcryAnims) {
+        const p = allPlayers.find((pl) => pl.id === id);
+        if (!p) continue;
+        const elapsed = Date.now() - startTime;
+        const progress = elapsed / WARCRY_DURATION_MS;
+        if (progress >= 1) continue;
+
+        const size = getPlayerSize(p.weeklyTokens);
+        const maxRadius = 300 * size;
+
+        // Multiple expanding rings
+        for (let ring = 0; ring < 3; ring++) {
+          const ringProgress = Math.max(0, Math.min(1, (progress - ring * 0.15) / 0.7));
+          if (ringProgress <= 0 || ringProgress >= 1) continue;
+          const radius = ringProgress * maxRadius;
+          const alpha = (1 - ringProgress) * 0.6;
+
+          ctx.strokeStyle = `rgba(255, 50, 50, ${alpha})`;
+          ctx.lineWidth = (4 - ringProgress * 3) * size;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Central flash
+        if (progress < 0.3) {
+          const flashAlpha = (1 - progress / 0.3) * 0.4;
+          const flashR = 40 * size * (progress / 0.3);
+          ctx.fillStyle = `rgba(255, 200, 50, ${flashAlpha})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, flashR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // "ROAR" text
+        const textAlpha = progress < 0.5 ? 1 : 1 - (progress - 0.5) / 0.5;
+        const textY = p.y - 40 * size - progress * 30;
+        ctx.font = `bold ${20 * size}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.globalAlpha = textAlpha;
+        ctx.fillStyle = "#ff3333";
+        ctx.strokeStyle = "rgba(0,0,0,0.8)";
+        ctx.lineWidth = 3;
+        ctx.strokeText("ROAR!", p.x, textY);
+        ctx.fillText("ROAR!", p.x, textY);
+        ctx.globalAlpha = 1;
       }
 
       ctx.restore();

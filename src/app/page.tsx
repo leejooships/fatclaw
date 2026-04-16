@@ -79,8 +79,11 @@ export default function Home() {
   const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingJoin, setPendingJoin] = useState<{ firstName: string; iconIndex: number } | null>(null);
+  const [showCliReminder, setShowCliReminder] = useState(false);
+  const [cliCopied, setCliCopied] = useState(false);
   const wsRef = useRef<PartySocket | null>(null);
   const pokeCallbackRef = useRef<((id: string, direction: string) => void) | null>(null);
+  const warcryCallbackRef = useRef<((id: string) => void) | null>(null);
 
   // Load session from localStorage
   useEffect(() => {
@@ -144,12 +147,21 @@ export default function Home() {
               p.id === data.id ? { ...p, x: data.x, y: data.y } : p,
             ),
           );
+          // Update local player position when pushed by poke/warcry
+          setLocalPlayer((prev) =>
+            prev && prev.id === data.id
+              ? { ...prev, x: data.x, y: data.y }
+              : prev,
+          );
           break;
         case "chat":
           setChatMessages((prev) => [...prev, data.message].slice(-50));
           break;
         case "poke":
           pokeCallbackRef.current?.(data.id, data.direction);
+          break;
+        case "warcry":
+          warcryCallbackRef.current?.(data.id);
           break;
         case "player_updated":
           setLocalPlayer((prev) =>
@@ -193,6 +205,7 @@ export default function Home() {
           const sessionData: SessionData = { username: savedNickname, iconIndex };
           setSession(sessionData);
           localStorage.setItem("fatclaw_session", JSON.stringify(sessionData));
+          setShowCliReminder(true);
         } else {
           setPendingJoin({ firstName, iconIndex });
         }
@@ -226,9 +239,12 @@ export default function Home() {
     wsRef.current?.send(JSON.stringify({ type: "chat", text }));
   }, []);
 
-  // Poke via WebSocket (admin only)
   const handlePoke = useCallback((direction: string) => {
     wsRef.current?.send(JSON.stringify({ type: "poke", direction }));
+  }, []);
+
+  const handleWarcry = useCallback(() => {
+    wsRef.current?.send(JSON.stringify({ type: "warcry" }));
   }, []);
 
   // Logout
@@ -274,6 +290,8 @@ export default function Home() {
         onMove={handleMove}
         onPoke={handlePoke}
         onPokeReceived={pokeCallbackRef}
+        onWarcry={handleWarcry}
+        onWarcryReceived={warcryCallbackRef}
       />
       {!statsPanelOpen && (
         <div className="fixed top-4 left-4 z-50">
@@ -306,6 +324,35 @@ export default function Home() {
         onToggle={() => setChatPanelOpen((o) => !o)}
         localUsername={session.username}
       />
+      {showCliReminder && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-sm w-full mx-4">
+            <h2 className="text-lg font-bold text-white mb-1">Welcome back!</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Don&apos;t forget to start your token sync so your slime keeps growing:
+            </p>
+            <div className="relative bg-gray-800/80 rounded-lg px-4 py-3 font-mono text-sm text-gray-300 mb-4">
+              <p>cd fatclaw/cli && bun run sync</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText("cd fatclaw/cli && bun run sync");
+                  setCliCopied(true);
+                  setTimeout(() => setCliCopied(false), 2000);
+                }}
+                className="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-gray-200 transition-colors cursor-pointer"
+              >
+                {cliCopied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <button
+              onClick={() => setShowCliReminder(false)}
+              className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-2 rounded-xl transition-colors cursor-pointer"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

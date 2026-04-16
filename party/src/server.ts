@@ -58,6 +58,8 @@ export class GameServer extends Server {
           return this.handleSyncTokens(conn, data);
         case "poke":
           return this.handlePoke(conn, data);
+        case "warcry":
+          return this.handleWarcry(conn);
         case "sync_for_user":
           return this.handleSyncForUser(data);
       }
@@ -213,11 +215,14 @@ export class GameServer extends Server {
 
   handlePoke(conn: Connection, data: { direction: string }) {
     const player = this.players.get(conn.id);
-    if (!player || !player.isAdmin) return;
+    if (!player) return;
 
     const dir = data.direction || "right";
-    const POKE_RANGE = 120;
-    const PUSH_FORCE = 80;
+    const BASE_PUSH = 60;
+    // Poke range scales with poker's size
+    const pokerT = Math.min(player.weeklyTokens, 500_000) / 500_000;
+    const pokerSize = 1 + pokerT * 3;
+    const POKE_RANGE = 120 * pokerSize;
 
     // Direction vector
     let dx = 0, dy = 0;
@@ -234,20 +239,84 @@ export class GameServer extends Server {
     }));
 
     // Find players in poke direction and push them
+    // Bigger targets (more tokens) get pushed further
     for (const [id, target] of this.players) {
       if (id === conn.id) continue;
       const tdx = target.x - player.x;
       const tdy = target.y - player.y;
       const dist = Math.sqrt(tdx * tdx + tdy * tdy);
-      if (dist > POKE_RANGE || dist < 1) continue;
+      // Target hitbox scales with their size
+      const t = Math.min(target.weeklyTokens, 500_000) / 500_000;
+      const targetSize = 1 + t * 3;
+      const hitboxBonus = targetSize * 20;
+      if (dist > POKE_RANGE + hitboxBonus || dist < 1) continue;
 
       // Check if target is roughly in the poke direction
       const dot = (tdx * dx + tdy * dy) / dist;
-      if (dot < 0.3) continue; // Not in the right direction
+      if (dot < 0.3) continue;
 
-      // Push target away
-      target.x = Math.max(20, Math.min(3000 - 20, target.x + dx * PUSH_FORCE));
-      target.y = Math.max(20, Math.min(3000 - 20, target.y + dy * PUSH_FORCE));
+      // Push scales by size ratio: small poking big = weak, big poking small = strong
+      const sizeRatio = pokerSize / targetSize;
+      const pushForce = BASE_PUSH * sizeRatio;
+
+      target.x = Math.max(20, Math.min(3000 - 20, target.x + dx * pushForce));
+      target.y = Math.max(20, Math.min(3000 - 20, target.y + dy * pushForce));
+
+      this.broadcast(JSON.stringify({
+        type: "player_moved",
+        id: target.id,
+        x: target.x,
+        y: target.y,
+      }));
+    }
+  }
+
+  handleWarcry(conn: Connection) {
+    const player = this.players.get(conn.id);
+    if (!player) return;
+
+    // Only the #1 player (highest weeklyTokens) can warcry
+    let topPlayer: Player | null = null;
+    for (const p of this.players.values()) {
+      if (!topPlayer || p.weeklyTokens > topPlayer.weeklyTokens) {
+        topPlayer = p;
+      }
+    }
+    if (!topPlayer || topPlayer.id !== player.id) return;
+
+    // Warcry range scales with caster's size
+    const casterT = Math.min(player.weeklyTokens, 500_000) / 500_000;
+    const casterSize = 1 + casterT * 3;
+    const WARCRY_RANGE = 300 * casterSize;
+    const BASE_PUSH = 60;
+
+    // Broadcast warcry animation
+    this.broadcast(JSON.stringify({
+      type: "warcry",
+      id: player.id,
+    }));
+
+    // Push everyone away in all directions, 5x force
+    for (const [id, target] of this.players) {
+      if (id === conn.id) continue;
+      const tdx = target.x - player.x;
+      const tdy = target.y - player.y;
+      const dist = Math.sqrt(tdx * tdx + tdy * tdy);
+      const tgtT = Math.min(target.weeklyTokens, 500_000) / 500_000;
+      const tgtSize = 1 + tgtT * 3;
+      const hitboxBonus = tgtSize * 20;
+      if (dist > WARCRY_RANGE + hitboxBonus || dist < 1) continue;
+
+      // Normalize direction away from player
+      const nx = tdx / dist;
+      const ny = tdy / dist;
+
+      // 5x push, scaled by caster/target size ratio
+      const sizeRatio = casterSize / tgtSize;
+      const pushForce = BASE_PUSH * sizeRatio * 5;
+
+      target.x = Math.max(20, Math.min(3000 - 20, target.x + nx * pushForce));
+      target.y = Math.max(20, Math.min(3000 - 20, target.y + ny * pushForce));
 
       this.broadcast(JSON.stringify({
         type: "player_moved",

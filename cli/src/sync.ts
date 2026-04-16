@@ -18,7 +18,8 @@ const RED = "\x1b[31m";
 const CYAN = "\x1b[36m";
 const YELLOW = "\x1b[33m";
 
-const DEFAULT_SERVER = "fatclaw-party.h-leejoo99.workers.dev";
+const DEFAULT_SERVER = "https://fatclaw.h-leejoo99.workers.dev";
+const WS_SERVER = "fatclaw-party.h-leejoo99.workers.dev";
 const SYNC_INTERVAL_MS = 30_000;
 
 function getWsUrl(host: string): string {
@@ -41,12 +42,7 @@ function ask(rl: ReturnType<typeof createInterface>, question: string): Promise<
 
 async function main() {
   let username = process.argv[2];
-  let serverUrl = DEFAULT_SERVER;
   const config = readConfig();
-
-  if (config) {
-    serverUrl = config.serverUrl || DEFAULT_SERVER;
-  }
 
   // Use saved syncUsername if no argument given
   if (!username && config?.syncUsername) {
@@ -71,7 +67,7 @@ async function main() {
       apiKey: "",
       encrypted: false,
       username: username,
-      serverUrl: DEFAULT_SERVER,
+      serverUrl: WS_SERVER,
       iconIndex: 0,
     };
     updatedConfig.syncUsername = username;
@@ -79,9 +75,9 @@ async function main() {
     console.log(`${GREEN}Saved! Next time just run: bun run sync${RESET}\n`);
   }
 
-  const wsUrl = getWsUrl(serverUrl);
+  const wsUrl = getWsUrl(WS_SERVER);
   console.log(`${CYAN}Syncing Claude Code usage for ${username}${RESET}`);
-  console.log(`${DIM}Server: ${serverUrl}${RESET}`);
+  console.log(`${DIM}Server: ${DEFAULT_SERVER}${RESET}`);
 
   const initialTokens = await getClaudeCodeWeeklyTokens();
   console.log(`${GREEN}Current weekly usage: ${formatTokens(initialTokens)} tokens${RESET}`);
@@ -94,7 +90,7 @@ async function main() {
 
     ws.onopen = () => {
       connected = true;
-      console.log(`${GREEN}Connected to server${RESET}`);
+      console.log(`${GREEN}Connected to ${DEFAULT_SERVER}${RESET}`);
       sync();
     };
 
